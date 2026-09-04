@@ -1,6 +1,6 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { parse } from "yaml";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { parse, stringify } from "yaml";
 import { parseCapabilityArtifact } from "./schema.js";
 import type { CapabilityArtifact } from "./types.js";
 
@@ -14,7 +14,18 @@ export async function loadCapabilityArtifact(capabilityId: string): Promise<Capa
     throw new Error(`Unknown capability: ${capabilityId}`);
   }
 
-  const raw = await readFile(join("capabilities", fileName), "utf8");
+  return loadCapabilityArtifactFromPath(join("capabilities", fileName));
+}
+
+export async function loadCapabilityArtifactFromPath(path: string): Promise<CapabilityArtifact> {
+  const raw = await readFile(path, "utf8");
   return parseCapabilityArtifact(parse(raw));
 }
 
+export async function saveCapabilityArtifact(path: string, artifact: CapabilityArtifact): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  const validated = parseCapabilityArtifact(artifact);
+  await writeFile(path, stringify(validated, {
+    lineWidth: 0
+  }), "utf8");
+}

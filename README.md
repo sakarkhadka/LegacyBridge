@@ -9,7 +9,7 @@ Model discovers
   -> Human resolves uncertainty
 ```
 
-This repository is being built for the Computer-Use Automation System take-home project. The current state is Phase 7 implemented: the discovery loop can drive the live UI through a structured model interface, with a scripted verification path and an OpenAI Responses API adapter ready for live model runs. Implementation progress is tracked in [status.md](status.md).
+This repository is being built for the Computer-Use Automation System take-home project. The current state is Phase 8 implemented: a successful discovery trace can be compiled into a redacted draft capability artifact and replayed deterministically with a different member. Implementation progress is tracked in [status.md](status.md).
 
 ## Setup
 
@@ -24,6 +24,7 @@ npm test
 
 ```bash
 npm run demo-app
+npm run demo:compile
 npm run demo:discover
 npm run demo:replay
 npm run demo:not-found
@@ -53,6 +54,15 @@ OPENAI_API_KEY=... npm run demo:discover -- --timeoutMs 120000
 ```
 
 The scripted command verifies the same observe-decide-act loop locally without an API call. The live command uses the OpenAI Responses API adapter and requires `OPENAI_API_KEY`. Discovery decisions are schema-validated before policy checks and surface execution.
+
+Discovery artifact compiler:
+
+```bash
+npm run demo:compile
+npm run replay -- --capabilityPath capabilities/generated/member-get-savings-balance.draft.yaml --memberId 54321
+```
+
+The compiler turns a successful discovery trace into `capabilities/generated/member-get-savings-balance.draft.yaml`. The generated draft parameterizes the discovered member number as `memberId`, declares the normalized `balance` money output, keeps reviewable semantic targets, includes a checkpoint, and validates against the same artifact schema consumed by replay. The replay command above proves the generated artifact runs with `llmDecisionCalls: 0`.
 
 Deterministic replay:
 
@@ -136,4 +146,4 @@ npm test
 npm audit --omit=optional
 ```
 
-Phase 1 tests validate that a well-formed capability artifact is accepted, malformed contracts are rejected, business outcomes are distinct from execution failures, and target descriptors do not leak Playwright selectors into the artifact schema. Phase 2 tests validate the local legacy banking proxy app and its deterministic runtime scenarios. Phase 3 tests validate the Playwright-backed surface adapter using semantic `TargetDescriptor` inputs. Phase 4 tests validate deterministic replay from a YAML capability artifact with no model credentials or LLM decision calls. Phase 5 tests validate runtime classification and bounded recovery behavior. Phase 6 tests validate policy enforcement and sensitive-data redaction. Phase 7 tests validate the discovery loop, decision schema, policy-blocked model actions, and verified goal completion.
+Phase 1 tests validate that a well-formed capability artifact is accepted, malformed contracts are rejected, business outcomes are distinct from execution failures, and target descriptors do not leak Playwright selectors into the artifact schema. Phase 2 tests validate the local legacy banking proxy app and its deterministic runtime scenarios. Phase 3 tests validate the Playwright-backed surface adapter using semantic `TargetDescriptor` inputs. Phase 4 tests validate deterministic replay from a YAML capability artifact with no model credentials or LLM decision calls. Phase 5 tests validate runtime classification and bounded recovery behavior. Phase 6 tests validate policy enforcement and sensitive-data redaction. Phase 7 tests validate the discovery loop, decision schema, policy-blocked model actions, and verified goal completion. Phase 8 tests validate compiling a successful discovery trace into a redacted draft YAML artifact, schema-validating that generated artifact, and replaying it against member `54321` with no LLM decisions.

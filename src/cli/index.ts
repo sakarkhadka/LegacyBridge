@@ -1,6 +1,7 @@
 import { createDemoAppServer } from "../../demo-app/server.js";
-import { loadCapabilityArtifact } from "../artifact/loader.js";
+import { loadCapabilityArtifact, loadCapabilityArtifactFromPath, saveCapabilityArtifact } from "../artifact/loader.js";
 import { runDiscovery } from "../discovery/agent.js";
+import { compileDiscoveryToArtifact } from "../discovery/artifact-compiler.js";
 import { OpenAIDiscoveryModel, ScriptedDiscoveryModel } from "../discovery/model.js";
 import { redactStructuredValue } from "../policy/redaction.js";
 import { replayCapability } from "../replay/executor.js";
@@ -10,6 +11,7 @@ import { createPlaywrightSession } from "../surface/playwright/session.js";
 const command = process.argv[2] ?? "help";
 
 const knownCommands = new Set([
+  "compile-discovery",
   "discover",
   "replay",
   "handoff",
@@ -26,6 +28,8 @@ if (!knownCommands.has(command)) {
   await runReplayCommand(process.argv.slice(3));
 } else if (command === "discover") {
   await runDiscoverCommand(process.argv.slice(3));
+} else if (command === "compile-discovery") {
+  await runCompileDiscoveryCommand(process.argv.slice(3));
 } else {
   console.log(`LegacyBridge command scaffold: ${command}`);
   console.log("Implementation pending. See status.md for current progress.");
@@ -33,13 +37,15 @@ if (!knownCommands.has(command)) {
 
 function printHelp(): void {
   console.log("LegacyBridge CLI");
-  console.log("Commands: discover, replay, handoff, validate-capability");
+  console.log("Commands: compile-discovery, discover, replay, handoff, validate-capability");
   console.log("");
   console.log("Replay example:");
   console.log("  npm run replay -- --capability member.get-savings-balance --memberId 54321");
+  console.log("  npm run replay -- --capabilityPath capabilities/generated/member-get-savings-balance.draft.yaml --memberId 54321");
   console.log("");
   console.log("Discovery example:");
   console.log("  npm run demo:discover -- --scripted");
+  console.log("  npm run demo:compile");
 }
 
 async function runDiscoverCommand(args: string[]): Promise<void> {
@@ -112,7 +118,9 @@ async function runReplayCommand(args: string[]): Promise<void> {
   });
 
   try {
-    const capability = await loadCapabilityArtifact(capabilityId);
+    const capability = options.capabilityPath
+      ? await loadCapabilityArtifactFromPath(options.capabilityPath)
+      : await loadCapabilityArtifact(capabilityId);
     const summary = await replayCapability({
       capability,
       inputs: {
@@ -125,6 +133,77 @@ async function runReplayCommand(args: string[]): Promise<void> {
 
     console.log(JSON.stringify(summary, null, 2));
   } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+}
+
+async function runCompileDiscoveryCommand(args: string[]): Promise<void> {
+  const options = parseArgs(args);
+  const port = Number(options.port ?? "3104");
+  const origin = `http://127.0.0.1:${port}`;
+  const goal = options.goal ?? "Look up member 12345 and return their current savings balance.";
+  const outputPath = options.output ?? "capabilities/generated/member-get-savings-balance.draft.yaml";
+  const server = createDemoAppServer();
+
+  await new Promise<void>((resolve) => {
+    server.listen(port, "127.0.0.1", resolve);
+  });
+
+  const session = await createPlaywrightSession({
+    headless: options.headless !== "false"
+  });
+
+  try {
+    const policyCapability = await loadCapabilityArtifact("member.get-savings-balance");
+    const surface = new PlaywrightSurfaceAdapter({
+      page: session.page,
+      sessionId: session.id
+    });
+    const model = new ScriptedDiscoveryModel(scriptedSavingsLookupDecisions(origin));
+    const discovery = await runDiscovery({
+      goal,
+      entrypoint: `${origin}/servicing/search`,
+      surface,
+      model,
+      policyCapability,
+      maxSteps: Number(options.maxSteps ?? "6"),
+      timeoutMs: Number(options.timeoutMs ?? "120000")
+    });
+    const artifact = compileDiscoveryToArtifact({
+      goal,
+      run: discovery
+    });
+    await saveCapabilityArtifact(outputPath, artifact);
+
+    const sensitiveValues = [extractMemberIdFromGoal(goal)].filter((value): value is string => Boolean(value));
+    console.log(JSON.stringify(redactStructuredValue({
+      status: "compiled",
+      outputPath,
+      discovery: {
+        status: discovery.status,
+        stopReason: discovery.stopReason,
+        stepsExecuted: discovery.stepsExecuted,
+        modelDecisionCalls: discovery.modelDecisionCalls
+      },
+      artifact: {
+        id: artifact.capability.id,
+        status: artifact.capability.status,
+        inputNames: Object.keys(artifact.inputs),
+        outputNames: Object.keys(artifact.outputs),
+        stepIds: artifact.steps.map((step) => step.id),
+        checkpoint: artifact.checkpoint
+      }
+    }, sensitiveValues), null, 2));
+  } finally {
+    await session.close();
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {
         if (error) {
