@@ -15,6 +15,7 @@ This repository is being built for the Computer-Use Automation System take-home 
 
 ```bash
 npm install
+npx playwright install chromium
 npm run typecheck
 npm test
 ```
@@ -31,6 +32,14 @@ npm run demo:handoff
 ```
 
 These commands are scaffolded now and will be wired up as each implementation phase lands.
+
+Surface adapter debug:
+
+```bash
+npm run debug:surface
+```
+
+This starts a temporary demo app, launches Chromium through Playwright, locates the `Member Number` field, locates the `Search` button, navigates to member `12345`, locates the Savings balance cell inside the accounts iframe, and extracts `$3,182.46`.
 
 ## Demo App
 
@@ -87,4 +96,4 @@ npm test
 npm audit --omit=optional
 ```
 
-Phase 1 tests validate that a well-formed capability artifact is accepted, malformed contracts are rejected, business outcomes are distinct from execution failures, and target descriptors do not leak Playwright selectors into the artifact schema. Phase 2 tests validate the local legacy banking proxy app and its deterministic runtime scenarios.
+Phase 1 tests validate that a well-formed capability artifact is accepted, malformed contracts are rejected, business outcomes are distinct from execution failures, and target descriptors do not leak Playwright selectors into the artifact schema. Phase 2 tests validate the local legacy banking proxy app and its deterministic runtime scenarios. Phase 3 tests validate the Playwright-backed surface adapter using semantic `TargetDescriptor` inputs.

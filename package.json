@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "cli": "tsx src/cli/index.ts",
+    "debug:surface": "tsx src/cli/surface-debug.ts",
     "demo-app": "tsx demo-app/server.ts",
     "demo:discover": "tsx src/cli/index.ts discover",
     "demo:replay": "tsx src/cli/index.ts replay",
