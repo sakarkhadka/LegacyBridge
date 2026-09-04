@@ -15,6 +15,8 @@ export type PolicyCheckRequest = {
   route: string;
   action: StepAction;
   risk: RiskClassification;
+  actionRisk?: RiskClassification;
+  approvalGranted?: boolean;
 };
 
 export type PolicyDecision =
@@ -30,4 +32,3 @@ export type PolicyDecision =
       reason: string;
       failureClass: Extract<FailureClass, "POLICY_VIOLATION">;
     };
-

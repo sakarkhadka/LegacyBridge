@@ -9,7 +9,7 @@ Model discovers
   -> Human resolves uncertainty
 ```
 
-This repository is being built for the Computer-Use Automation System take-home project. The current state is Phase 5 complete: deterministic replay now handles normal success, business outcomes, recoverable runtime conditions, and hard failures. Implementation progress is tracked in [status.md](status.md).
+This repository is being built for the Computer-Use Automation System take-home project. The current state is Phase 6 complete: deterministic replay now uses structural policy enforcement and sensitive runtime values are redacted from structured output. Implementation progress is tracked in [status.md](status.md).
 
 ## Setup
 
@@ -58,6 +58,19 @@ npm run replay -- --memberId 54321 --scenario error --port 3115
 ```
 
 The first command replays the hand-authored capability against a different member and returns a normalized money output. The second command returns `business_outcome / MEMBER_NOT_FOUND`. The scenario commands demonstrate known interstitial recovery, slow-load recovery metadata, permission denial, session expiration, and app-error classification. All replay commands report `llmDecisionCalls: 0`.
+
+## Safety
+
+Replay actions pass through a structural policy layer before reaching the surface adapter. The current policy checks:
+
+```text
+allowed origins
+allowed routes
+allowed action types
+risk class requiring human approval for irreversible writes
+```
+
+Inputs marked `sensitive: true` in a capability artifact are redacted from structured runtime output and log-like event payloads. Screenshots are not redacted yet; the intended production design is to associate sensitive inputs with target regions during fill/extract events and apply rectangular masking before screenshots are persisted.
 
 ## Demo App
 
@@ -114,4 +127,4 @@ npm test
 npm audit --omit=optional
 ```
 
-Phase 1 tests validate that a well-formed capability artifact is accepted, malformed contracts are rejected, business outcomes are distinct from execution failures, and target descriptors do not leak Playwright selectors into the artifact schema. Phase 2 tests validate the local legacy banking proxy app and its deterministic runtime scenarios. Phase 3 tests validate the Playwright-backed surface adapter using semantic `TargetDescriptor` inputs. Phase 4 tests validate deterministic replay from a YAML capability artifact with no model credentials or LLM decision calls. Phase 5 tests validate runtime classification and bounded recovery behavior.
+Phase 1 tests validate that a well-formed capability artifact is accepted, malformed contracts are rejected, business outcomes are distinct from execution failures, and target descriptors do not leak Playwright selectors into the artifact schema. Phase 2 tests validate the local legacy banking proxy app and its deterministic runtime scenarios. Phase 3 tests validate the Playwright-backed surface adapter using semantic `TargetDescriptor` inputs. Phase 4 tests validate deterministic replay from a YAML capability artifact with no model credentials or LLM decision calls. Phase 5 tests validate runtime classification and bounded recovery behavior. Phase 6 tests validate policy enforcement and sensitive-data redaction.

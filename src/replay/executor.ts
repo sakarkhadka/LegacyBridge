@@ -1,5 +1,9 @@
 import type { Page } from "playwright";
 import type { CapabilityArtifact, CapabilityStep, ValueSource } from "../artifact/types.js";
+import { policyConfigFromCapability } from "../policy/config.js";
+import { PolicyEngine, policyRequestForUrl } from "../policy/policy-engine.js";
+import { redactExecutionResult, sensitiveValuesFromInputs } from "../policy/redaction.js";
+import { classifyStepRisk } from "../policy/risk-classifier.js";
 import { PlaywrightSurfaceAdapter } from "../surface/playwright/playwright-adapter.js";
 import { createPlaywrightSession } from "../surface/playwright/session.js";
 import { conditionsPass, waitForDefinition } from "./checkpoint-engine.js";
@@ -19,6 +23,7 @@ export type ReplayInvocation = {
   origin: string;
   scenario?: string;
   headless?: boolean;
+  approvalGranted?: boolean;
 };
 
 export type ReplaySummary = {
@@ -28,10 +33,11 @@ export type ReplaySummary = {
 };
 
 export async function replayCapability(invocation: ReplayInvocation): Promise<ReplaySummary> {
+  const sensitiveValues = sensitiveValuesFromInputs(invocation.capability, invocation.inputs);
   const inputValidationFailure = validateInputs(invocation.capability, invocation.inputs);
   if (inputValidationFailure) {
     return {
-      result: inputValidationFailure,
+      result: redactExecutionResult(inputValidationFailure, sensitiveValues),
       llmDecisionCalls: 0,
       recoveries: []
     };
@@ -48,6 +54,7 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
     });
     const outputs: Record<string, TypedOutput> = {};
     const recoveries: RecoveryEvent[] = [];
+    const policyEngine = new PolicyEngine(policyConfigFromCapability(invocation.capability, invocation.origin));
     const context = {
       page: session.page,
       adapter,
@@ -55,20 +62,26 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
     };
 
     for (const step of invocation.capability.steps) {
-      const policyFailure = precheckStepPolicy(invocation.capability, step, invocation.origin);
+      const policyFailure = await precheckStepPolicy({
+        capability: invocation.capability,
+        step,
+        invocation,
+        page: session.page,
+        policyEngine
+      });
       if (policyFailure) {
-        return { result: policyFailure, llmDecisionCalls: 0, recoveries };
+        return summarize(policyFailure, recoveries, sensitiveValues);
       }
 
       const preconditionsPass = await conditionsPass(step.precondition, context);
       if (!preconditionsPass) {
         return {
-          result: failure({
+          result: redactExecutionResult(failure({
             class: "PRECONDITION_FAILED",
             stepId: step.id,
             expected: "step preconditions pass",
             observed: await observedState(session.page)
-          }),
+          }), sensitiveValues),
           llmDecisionCalls: 0,
           recoveries
         };
@@ -79,7 +92,7 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
       const stepElapsedMs = Date.now() - stepStartedAt;
       if (stepResult.status !== "success") {
         return {
-          result: stepResult,
+          result: redactExecutionResult(stepResult, sensitiveValues),
           llmDecisionCalls: 0,
           recoveries
         };
@@ -99,7 +112,7 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
       const hardRuntimeCondition = await detectHardRuntimeCondition(session.page, step.id);
       if (hardRuntimeCondition) {
         return {
-          result: hardRuntimeCondition,
+          result: redactExecutionResult(hardRuntimeCondition, sensitiveValues),
           llmDecisionCalls: 0,
           recoveries
         };
@@ -128,20 +141,20 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
         const hardRuntimeConditionAfterWait = await detectHardRuntimeCondition(session.page, step.id);
         if (hardRuntimeConditionAfterWait) {
           return {
-            result: hardRuntimeConditionAfterWait,
+            result: redactExecutionResult(hardRuntimeConditionAfterWait, sensitiveValues),
             llmDecisionCalls: 0,
             recoveries
           };
         }
 
         return {
-          result: failure({
+          result: redactExecutionResult(failure({
             class: "LOAD_TIMEOUT",
             stepId: step.id,
             expected: `wait condition ${step.wait?.type ?? "unknown"} to pass`,
             observed: await observedState(session.page),
             recoverable: Boolean(step.recovery?.retries)
-          }),
+          }), sensitiveValues),
           llmDecisionCalls: 0,
           recoveries
         };
@@ -150,12 +163,12 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
       const postconditionsPass = await conditionsPass(step.postcondition, context);
       if (!postconditionsPass) {
         return {
-          result: failure({
+          result: redactExecutionResult(failure({
             class: "POSTCONDITION_FAILED",
             stepId: step.id,
             expected: "step postconditions pass",
             observed: await observedState(session.page)
-          }),
+          }), sensitiveValues),
           llmDecisionCalls: 0,
           recoveries
         };
@@ -165,11 +178,11 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
     const checkpointPasses = await conditionsPass(invocation.capability.checkpoint.conditions, context);
     if (!checkpointPasses) {
       return {
-        result: failure({
+        result: redactExecutionResult(failure({
           class: "CHECKPOINT_FAILED",
           expected: invocation.capability.checkpoint.description,
           observed: await observedState(session.page)
-        }),
+        }), sensitiveValues),
         llmDecisionCalls: 0,
         recoveries
       };
@@ -249,7 +262,10 @@ async function runStep(
       value: resolveValue(step.value, invocation)
     },
     target
-  );
+  ).catch((error: unknown) => ({
+    ok: false,
+    observed: error instanceof Error ? error.message : String(error)
+  }));
 
   if (!actionResult.ok) {
     return failure({
@@ -318,54 +334,49 @@ function validateInputs(capability: CapabilityArtifact, inputs: Record<string, u
   return undefined;
 }
 
-function precheckStepPolicy(capability: CapabilityArtifact, step: CapabilityStep, origin: string): ExecutionResult | undefined {
-  if (!capability.policy.allowedActions.includes(step.action)) {
-    return failure({
-      class: "POLICY_VIOLATION",
-      stepId: step.id,
-      expected: `action ${step.action} allowed by policy`,
-      observed: "action is not in allowedActions"
-    });
-  }
-
+async function precheckStepPolicy(options: {
+  capability: CapabilityArtifact;
+  step: CapabilityStep;
+  invocation: ReplayInvocation;
+  page: Page;
+  policyEngine: PolicyEngine;
+}): Promise<ExecutionResult | undefined> {
+  const { capability, step, invocation, page, policyEngine } = options;
+  const actionRisk = classifyStepRisk(step, capability.policy.risk);
+  const approvalGranted = invocation.approvalGranted ?? false;
+  let url: URL;
   if (step.action === "navigate") {
     const value = step.value && "literal" in step.value && typeof step.value.literal === "string"
       ? step.value.literal
-        .replaceAll("{{origin}}", origin)
-        .replaceAll("{{scenarioQuery}}", "")
+        .replaceAll("{{origin}}", invocation.origin)
+        .replaceAll("{{scenarioQuery}}", invocation.scenario ? `?scenario=${encodeURIComponent(invocation.scenario)}` : "")
       : undefined;
     if (!value) {
       return undefined;
     }
-    const url = new URL(value);
-    const allowedOrigins = capability.policy.allowedOrigins.map((allowedOrigin) => allowedOrigin.replaceAll("{{origin}}", origin));
-    if (!allowedOrigins.includes(url.origin)) {
-      return failure({
-        class: "POLICY_VIOLATION",
-        stepId: step.id,
-        expected: `origin in ${allowedOrigins.join(", ")}`,
-        observed: url.origin
-      });
-    }
-
-    if (!capability.policy.allowedRoutes.some((routePattern) => routeMatches(routePattern, url.pathname))) {
-      return failure({
-        class: "POLICY_VIOLATION",
-        stepId: step.id,
-        expected: `route in ${capability.policy.allowedRoutes.join(", ")}`,
-        observed: url.pathname
-      });
-    }
+    url = new URL(value);
+  } else {
+    url = new URL(page.url() || invocation.origin);
   }
 
-  return undefined;
-}
+  const decision = policyEngine.check(policyRequestForUrl({
+    url,
+    action: step.action,
+    capabilityRisk: capability.policy.risk,
+    actionRisk,
+    approvalGranted
+  }));
 
-function routeMatches(pattern: string, pathname: string): boolean {
-  const escaped = pattern
-    .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
-    .replaceAll("*", ".*");
-  return new RegExp(`^${escaped}$`).test(pathname);
+  if (decision.status === "allowed") {
+    return undefined;
+  }
+
+  return failure({
+    class: "POLICY_VIOLATION",
+    stepId: step.id,
+    expected: decision.status === "requires_human_approval" ? "human approval for irreversible action" : "policy check passes",
+    observed: decision.reason
+  });
 }
 
 async function detectBusinessOutcome(capability: CapabilityArtifact, context: Parameters<typeof conditionsPass>[1]) {
@@ -429,4 +440,12 @@ async function observedState(page: Page): Promise<string> {
     title,
     text: text.slice(0, 300)
   });
+}
+
+function summarize(result: ExecutionResult, recoveries: RecoveryEvent[], sensitiveValues: string[]): ReplaySummary {
+  return {
+    result: redactExecutionResult(result, sensitiveValues),
+    llmDecisionCalls: 0,
+    recoveries
+  };
 }
