@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+#files
+Codex*
+Assignment*
+
+# Build output
+dist/
+coverage/
+playwright-report/
+test-results/
+
+# Runtime and generated artifacts
+.env
+.env.local
+*.log
+
+# Evidence can contain screenshots/traces generated during local runs.
+# Keep curated evidence intentionally by force-adding specific files when needed.
+evidence/**/trace.zip
+evidence/**/screenshots/
+evidence/**/*.png
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+

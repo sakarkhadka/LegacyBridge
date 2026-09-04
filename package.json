@@ -1,0 +1,43 @@
+{
+  "name": "legacybridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Computer-use capability discovery and deterministic replay for legacy enterprise UIs.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "cli": "tsx src/cli/index.ts",
+    "demo-app": "tsx demo-app/server.ts",
+    "demo:discover": "tsx src/cli/index.ts discover",
+    "demo:replay": "tsx src/cli/index.ts replay",
+    "demo:not-found": "tsx src/cli/index.ts replay --memberId 00000",
+    "demo:recovery": "tsx src/cli/index.ts replay --scenario interstitial",
+    "demo:handoff": "tsx src/cli/index.ts handoff",
+    "validate-capability": "tsx src/cli/index.ts validate-capability"
+  },
+  "keywords": [
+    "computer-use",
+    "playwright",
+    "deterministic-replay",
+    "legacy-ui",
+    "llm"
+  ],
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0",
+    "yaml": "^2.6.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.11"
+  }
+}
