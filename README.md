@@ -9,7 +9,7 @@ Model discovers
   -> Human resolves uncertainty
 ```
 
-This repository is being built for the Computer-Use Automation System take-home project. The current state is initial project scaffolding; implementation will proceed in small phases tracked in [status.md](status.md).
+This repository is being built for the Computer-Use Automation System take-home project. The current state is Phase 1 complete: the core capability, result, surface, policy, and intervention contracts are defined and validated before any browser automation exists. Implementation progress is tracked in [status.md](status.md).
 
 ## Setup
 
@@ -50,3 +50,12 @@ evidence           Curated demo evidence
 tests              Focused tests for architectural guarantees
 ```
 
+## Current Verification
+
+```bash
+npm run typecheck
+npm test
+npm audit --omit=optional
+```
+
+Phase 1 tests validate that a well-formed capability artifact is accepted, malformed contracts are rejected, business outcomes are distinct from execution failures, and target descriptors do not leak Playwright selectors into the artifact schema.
