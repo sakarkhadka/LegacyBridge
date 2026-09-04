@@ -9,7 +9,7 @@ Model discovers
   -> Human resolves uncertainty
 ```
 
-This repository is being built for the Computer-Use Automation System take-home project. The current state is Phase 1 complete: the core capability, result, surface, policy, and intervention contracts are defined and validated before any browser automation exists. Implementation progress is tracked in [status.md](status.md).
+This repository is being built for the Computer-Use Automation System take-home project. The current state is Phase 2 complete: the core contracts are defined and a local legacy banking proxy app is available for discovery and replay work. Implementation progress is tracked in [status.md](status.md).
 
 ## Setup
 
@@ -31,6 +31,35 @@ npm run demo:handoff
 ```
 
 These commands are scaffolded now and will be wired up as each implementation phase lands.
+
+## Demo App
+
+Start the local proxy target:
+
+```bash
+npm run demo-app
+```
+
+Open:
+
+```text
+http://localhost:3000/servicing/search
+```
+
+Manual checks:
+
+```text
+12345 -> valid member with savings balance $3,182.46
+54321 -> valid member with savings balance $8,044.19
+00000 -> Member not found
+88888 -> Permission denied
+?scenario=session-expired -> Session Expired
+?scenario=interstitial -> System Notice / Maintenance scheduled tonight
+?scenario=slow -> delayed page response
+?scenario=error -> Application error
+```
+
+The risky-action flow is available from a member details page through `Open Sub Account`, then `Review`, then `Confirm Opening`. The final confirmation action is intentionally marked in the UI as irreversible so later policy and human-approval phases have a concrete target.
 
 ## Project Structure
 
@@ -58,4 +87,4 @@ npm test
 npm audit --omit=optional
 ```
 
-Phase 1 tests validate that a well-formed capability artifact is accepted, malformed contracts are rejected, business outcomes are distinct from execution failures, and target descriptors do not leak Playwright selectors into the artifact schema.
+Phase 1 tests validate that a well-formed capability artifact is accepted, malformed contracts are rejected, business outcomes are distinct from execution failures, and target descriptors do not leak Playwright selectors into the artifact schema. Phase 2 tests validate the local legacy banking proxy app and its deterministic runtime scenarios.
