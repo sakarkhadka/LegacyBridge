@@ -5,19 +5,26 @@ import { createPlaywrightSession } from "../surface/playwright/session.js";
 import { conditionsPass, waitForDefinition } from "./checkpoint-engine.js";
 import { parseOutput } from "./output-extractor.js";
 import { failure, businessOutcome, success } from "./result-builder.js";
-import { retryAttemptsFor, waitBeforeRetry } from "./recovery.js";
+import {
+  recoverKnownInterstitials,
+  retryAttemptsFor,
+  waitBeforeRetry,
+  type RecoveryEvent
+} from "./recovery.js";
 import type { ExecutionResult, TypedOutput } from "./results.js";
 
 export type ReplayInvocation = {
   capability: CapabilityArtifact;
   inputs: Record<string, unknown>;
   origin: string;
+  scenario?: string;
   headless?: boolean;
 };
 
 export type ReplaySummary = {
   result: ExecutionResult;
   llmDecisionCalls: 0;
+  recoveries: RecoveryEvent[];
 };
 
 export async function replayCapability(invocation: ReplayInvocation): Promise<ReplaySummary> {
@@ -25,7 +32,8 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
   if (inputValidationFailure) {
     return {
       result: inputValidationFailure,
-      llmDecisionCalls: 0
+      llmDecisionCalls: 0,
+      recoveries: []
     };
   }
 
@@ -39,6 +47,7 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
       sessionId: session.id
     });
     const outputs: Record<string, TypedOutput> = {};
+    const recoveries: RecoveryEvent[] = [];
     const context = {
       page: session.page,
       adapter,
@@ -48,7 +57,7 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
     for (const step of invocation.capability.steps) {
       const policyFailure = precheckStepPolicy(invocation.capability, step, invocation.origin);
       if (policyFailure) {
-        return { result: policyFailure, llmDecisionCalls: 0 };
+        return { result: policyFailure, llmDecisionCalls: 0, recoveries };
       }
 
       const preconditionsPass = await conditionsPass(step.precondition, context);
@@ -60,15 +69,39 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
             expected: "step preconditions pass",
             observed: await observedState(session.page)
           }),
-          llmDecisionCalls: 0
+          llmDecisionCalls: 0,
+          recoveries
         };
       }
 
+      const stepStartedAt = Date.now();
       const stepResult = await runStepWithRetries(step, invocation, adapter, outputs, session.page);
+      const stepElapsedMs = Date.now() - stepStartedAt;
       if (stepResult.status !== "success") {
         return {
           result: stepResult,
-          llmDecisionCalls: 0
+          llmDecisionCalls: 0,
+          recoveries
+        };
+      }
+
+      if (stepElapsedMs > 700 && step.recovery?.retries) {
+        recoveries.push({
+          stepId: step.id,
+          condition: "TRANSIENT_LOAD",
+          action: `waited ${stepElapsedMs}ms for step completion`,
+          recovered: true
+        });
+      }
+
+      recoveries.push(...(await recoverKnownInterstitials(step, adapter)));
+
+      const hardRuntimeCondition = await detectHardRuntimeCondition(session.page, step.id);
+      if (hardRuntimeCondition) {
+        return {
+          result: hardRuntimeCondition,
+          llmDecisionCalls: 0,
+          recoveries
         };
       }
 
@@ -76,7 +109,8 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
       if (outcome) {
         return {
           result: businessOutcome(outcome),
-          llmDecisionCalls: 0
+          llmDecisionCalls: 0,
+          recoveries
         };
       }
 
@@ -86,7 +120,17 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
         if (outcomeAfterWait) {
           return {
             result: businessOutcome(outcomeAfterWait),
-            llmDecisionCalls: 0
+            llmDecisionCalls: 0,
+            recoveries
+          };
+        }
+
+        const hardRuntimeConditionAfterWait = await detectHardRuntimeCondition(session.page, step.id);
+        if (hardRuntimeConditionAfterWait) {
+          return {
+            result: hardRuntimeConditionAfterWait,
+            llmDecisionCalls: 0,
+            recoveries
           };
         }
 
@@ -98,7 +142,8 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
             observed: await observedState(session.page),
             recoverable: Boolean(step.recovery?.retries)
           }),
-          llmDecisionCalls: 0
+          llmDecisionCalls: 0,
+          recoveries
         };
       }
 
@@ -111,7 +156,8 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
             expected: "step postconditions pass",
             observed: await observedState(session.page)
           }),
-          llmDecisionCalls: 0
+          llmDecisionCalls: 0,
+          recoveries
         };
       }
     }
@@ -124,13 +170,15 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
           expected: invocation.capability.checkpoint.description,
           observed: await observedState(session.page)
         }),
-        llmDecisionCalls: 0
+        llmDecisionCalls: 0,
+        recoveries
       };
     }
 
     return {
       result: success(outputs),
-      llmDecisionCalls: 0
+      llmDecisionCalls: 0,
+      recoveries
     };
   } finally {
     await session.close();
@@ -238,7 +286,9 @@ function resolveValue(value: ValueSource | undefined, invocation: ReplayInvocati
   }
 
   if (typeof value.literal === "string") {
-    return value.literal.replaceAll("{{origin}}", invocation.origin);
+    return value.literal
+      .replaceAll("{{origin}}", invocation.origin)
+      .replaceAll("{{scenarioQuery}}", invocation.scenario ? `?scenario=${encodeURIComponent(invocation.scenario)}` : "");
   }
 
   return value.literal;
@@ -280,7 +330,9 @@ function precheckStepPolicy(capability: CapabilityArtifact, step: CapabilityStep
 
   if (step.action === "navigate") {
     const value = step.value && "literal" in step.value && typeof step.value.literal === "string"
-      ? step.value.literal.replaceAll("{{origin}}", origin)
+      ? step.value.literal
+        .replaceAll("{{origin}}", origin)
+        .replaceAll("{{scenarioQuery}}", "")
       : undefined;
     if (!value) {
       return undefined;
@@ -323,6 +375,49 @@ async function detectBusinessOutcome(capability: CapabilityArtifact, context: Pa
     }
   }
   return undefined;
+}
+
+async function detectHardRuntimeCondition(page: Page, stepId: string): Promise<ExecutionResult | undefined> {
+  const state = await observedState(page);
+  const title = await page.title().catch(() => "");
+  const text = await pageText(page);
+
+  if (title === "Session Expired" || text.includes("Your host session has expired")) {
+    return failure({
+      class: "SESSION_EXPIRED",
+      stepId,
+      expected: "active host session",
+      observed: state
+    });
+  }
+
+  if (title.includes("Permission Denied") || text.includes("Operator role may not view member")) {
+    return failure({
+      class: "PERMISSION_DENIED",
+      stepId,
+      expected: "operator may view member record",
+      observed: state
+    });
+  }
+
+  if (title === "Application Error" || text.includes("Simulated host exception")) {
+    return failure({
+      class: "APPLICATION_ERROR",
+      stepId,
+      expected: "host application screen without server error",
+      observed: state
+    });
+  }
+
+  return undefined;
+}
+
+async function pageText(page: Page): Promise<string> {
+  const chunks: string[] = [];
+  for (const frame of page.frames()) {
+    chunks.push(await frame.locator("body").innerText().catch(() => ""));
+  }
+  return chunks.join("\n");
 }
 
 async function observedState(page: Page): Promise<string> {

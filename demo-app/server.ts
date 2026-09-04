@@ -44,7 +44,7 @@ function routeRequest(_request: IncomingMessage, response: ServerResponse, conte
   }
 
   if (context.scenario === "error") {
-    sendHtml(response, 500, layout("Application Error", systemErrorPage("Simulated host exception HC-5007.")));
+    sendHtml(response, 500, layout("Application Error", systemErrorPage("Simulated host exception HC-5007."), { hideNotice: true }));
     return;
   }
 

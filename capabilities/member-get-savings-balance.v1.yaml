@@ -46,10 +46,17 @@ steps:
   - id: navigate-to-search
     action: navigate
     value:
-      literal: "{{origin}}/servicing/search"
+      literal: "{{origin}}/servicing/search{{scenarioQuery}}"
     wait:
       type: navigation
       timeoutMs: 5000
+    recovery:
+      retries:
+        maxAttempts: 1
+        backoffMs: 250
+      knownDialogs:
+        - title: System Notice
+          response: dismiss
     postcondition:
       - type: text_present
         value: Member Search
@@ -85,6 +92,10 @@ steps:
       type: text
       text: Accounts
       timeoutMs: 5000
+    recovery:
+      retries:
+        maxAttempts: 1
+        backoffMs: 250
 
   - id: extract-savings-balance
     action: extract

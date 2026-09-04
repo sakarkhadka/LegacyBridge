@@ -9,7 +9,7 @@ Model discovers
   -> Human resolves uncertainty
 ```
 
-This repository is being built for the Computer-Use Automation System take-home project. The current state is Phase 2 complete: the core contracts are defined and a local legacy banking proxy app is available for discovery and replay work. Implementation progress is tracked in [status.md](status.md).
+This repository is being built for the Computer-Use Automation System take-home project. The current state is Phase 5 complete: deterministic replay now handles normal success, business outcomes, recoverable runtime conditions, and hard failures. Implementation progress is tracked in [status.md](status.md).
 
 ## Setup
 
@@ -28,6 +28,10 @@ npm run demo:discover
 npm run demo:replay
 npm run demo:not-found
 npm run demo:recovery
+npm run demo:slow
+npm run demo:permission-denied
+npm run demo:session-expired
+npm run demo:app-error
 npm run demo:handoff
 ```
 
@@ -46,9 +50,14 @@ Deterministic replay:
 ```bash
 npm run replay -- --capability member.get-savings-balance --memberId 54321
 npm run replay -- --capability member.get-savings-balance --memberId 00000 --port 3102
+npm run replay -- --memberId 54321 --scenario interstitial --port 3111
+npm run replay -- --memberId 54321 --scenario slow --port 3112
+npm run replay -- --memberId 88888 --port 3113
+npm run replay -- --memberId 54321 --scenario session-expired --port 3114
+npm run replay -- --memberId 54321 --scenario error --port 3115
 ```
 
-The first command replays the hand-authored capability against a different member and returns a normalized money output. The second command returns `business_outcome / MEMBER_NOT_FOUND`. Both report `llmDecisionCalls: 0`.
+The first command replays the hand-authored capability against a different member and returns a normalized money output. The second command returns `business_outcome / MEMBER_NOT_FOUND`. The scenario commands demonstrate known interstitial recovery, slow-load recovery metadata, permission denial, session expiration, and app-error classification. All replay commands report `llmDecisionCalls: 0`.
 
 ## Demo App
 
@@ -105,4 +114,4 @@ npm test
 npm audit --omit=optional
 ```
 
-Phase 1 tests validate that a well-formed capability artifact is accepted, malformed contracts are rejected, business outcomes are distinct from execution failures, and target descriptors do not leak Playwright selectors into the artifact schema. Phase 2 tests validate the local legacy banking proxy app and its deterministic runtime scenarios. Phase 3 tests validate the Playwright-backed surface adapter using semantic `TargetDescriptor` inputs. Phase 4 tests validate deterministic replay from a YAML capability artifact with no model credentials or LLM decision calls.
+Phase 1 tests validate that a well-formed capability artifact is accepted, malformed contracts are rejected, business outcomes are distinct from execution failures, and target descriptors do not leak Playwright selectors into the artifact schema. Phase 2 tests validate the local legacy banking proxy app and its deterministic runtime scenarios. Phase 3 tests validate the Playwright-backed surface adapter using semantic `TargetDescriptor` inputs. Phase 4 tests validate deterministic replay from a YAML capability artifact with no model credentials or LLM decision calls. Phase 5 tests validate runtime classification and bounded recovery behavior.

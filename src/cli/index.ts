@@ -52,6 +52,7 @@ async function runReplayCommand(args: string[]): Promise<void> {
         memberId
       },
       origin,
+      scenario: options.scenario,
       headless: options.headless !== "false"
     });
 

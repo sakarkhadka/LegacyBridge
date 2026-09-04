@@ -109,6 +109,98 @@ describe("deterministic replay executor", () => {
     });
   });
 
+  it("recovers from a known interstitial and then succeeds", async () => {
+    const capability = await loadCapabilityArtifact("member.get-savings-balance");
+    const summary = await replayCapability({
+      capability,
+      inputs: {
+        memberId: "54321"
+      },
+      origin,
+      scenario: "interstitial"
+    });
+
+    expect(summary.llmDecisionCalls).toBe(0);
+    expect(summary.result.status).toBe("success");
+    expect(summary.recoveries).toContainEqual({
+      stepId: "navigate-to-search",
+      condition: "KNOWN_INTERSTITIAL",
+      action: "dismissed System Notice",
+      recovered: true
+    });
+  });
+
+  it("records transient slow-load recovery metadata and succeeds", async () => {
+    const capability = await loadCapabilityArtifact("member.get-savings-balance");
+    const summary = await replayCapability({
+      capability,
+      inputs: {
+        memberId: "54321"
+      },
+      origin,
+      scenario: "slow"
+    });
+
+    expect(summary.llmDecisionCalls).toBe(0);
+    expect(summary.result.status).toBe("success");
+    expect(summary.recoveries.some((event) => event.condition === "TRANSIENT_LOAD" && event.recovered)).toBe(true);
+  });
+
+  it("classifies permission denied as a hard failure", async () => {
+    const capability = await loadCapabilityArtifact("member.get-savings-balance");
+    const summary = await replayCapability({
+      capability,
+      inputs: {
+        memberId: "88888"
+      },
+      origin
+    });
+
+    expect(summary.llmDecisionCalls).toBe(0);
+    expect(summary.result.status).toBe("failure");
+    if (summary.result.status !== "failure") {
+      throw new Error("Expected replay failure");
+    }
+    expect(summary.result.error.class).toBe("PERMISSION_DENIED");
+    expect(summary.result.error.recoverable).toBe(false);
+  });
+
+  it("classifies session expiration as a hard failure", async () => {
+    const capability = await loadCapabilityArtifact("member.get-savings-balance");
+    const summary = await replayCapability({
+      capability,
+      inputs: {
+        memberId: "54321"
+      },
+      origin,
+      scenario: "session-expired"
+    });
+
+    expect(summary.result.status).toBe("failure");
+    if (summary.result.status !== "failure") {
+      throw new Error("Expected replay failure");
+    }
+    expect(summary.result.error.class).toBe("SESSION_EXPIRED");
+  });
+
+  it("classifies application error as a hard failure", async () => {
+    const capability = await loadCapabilityArtifact("member.get-savings-balance");
+    const summary = await replayCapability({
+      capability,
+      inputs: {
+        memberId: "54321"
+      },
+      origin,
+      scenario: "error"
+    });
+
+    expect(summary.result.status).toBe("failure");
+    if (summary.result.status !== "failure") {
+      throw new Error("Expected replay failure");
+    }
+    expect(summary.result.error.class).toBe("APPLICATION_ERROR");
+  });
+
   it("fails before browser execution when invocation inputs are invalid", async () => {
     const capability = await loadCapabilityArtifact("member.get-savings-balance");
     const summary = await replayCapability({

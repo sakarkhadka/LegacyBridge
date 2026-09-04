@@ -17,6 +17,10 @@
     "demo:replay": "tsx src/cli/index.ts replay",
     "demo:not-found": "tsx src/cli/index.ts replay --memberId 00000",
     "demo:recovery": "tsx src/cli/index.ts replay --scenario interstitial",
+    "demo:slow": "tsx src/cli/index.ts replay --scenario slow",
+    "demo:permission-denied": "tsx src/cli/index.ts replay --memberId 88888",
+    "demo:session-expired": "tsx src/cli/index.ts replay --scenario session-expired",
+    "demo:app-error": "tsx src/cli/index.ts replay --scenario error",
     "demo:handoff": "tsx src/cli/index.ts handoff",
     "validate-capability": "tsx src/cli/index.ts validate-capability"
   },
