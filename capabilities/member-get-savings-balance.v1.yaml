@@ -1,0 +1,121 @@
+schemaVersion: "1.0"
+
+capability:
+  id: member.get-savings-balance
+  version: 1.0.0
+  name: Get savings balance
+  description: Look up a synthetic member and return the current savings balance.
+  status: draft
+
+targetApplication:
+  vendor: heritage-core
+  application: Heritage Core Servicing
+  supportedVersions:
+    - demo
+  fingerprint:
+    titlePatterns:
+      - Heritage Core Servicing
+    routePatterns:
+      - /servicing/*
+    landmarks:
+      - Member Search
+      - Accounts
+
+inputs:
+  memberId:
+    type: string
+    required: true
+    sensitive: true
+    description: Synthetic member number.
+    pattern: "^[0-9]{5}$"
+
+outputs:
+  balance:
+    type: money
+    required: true
+    description: Current savings balance.
+
+outcomes:
+  - code: MEMBER_NOT_FOUND
+    description: No member exists for the supplied member number.
+    when:
+      - type: text_present
+        value: Member not found
+
+steps:
+  - id: navigate-to-search
+    action: navigate
+    value:
+      literal: "{{origin}}/servicing/search"
+    wait:
+      type: navigation
+      timeoutMs: 5000
+    postcondition:
+      - type: text_present
+        value: Member Search
+
+  - id: enter-member-id
+    action: fill
+    target:
+      description: Member Number input
+      primary:
+        strategy: label
+        text: Member Number
+      fallbacks:
+        - strategy: accessible
+          role: textbox
+          name: Member Number
+    value:
+      parameter: memberId
+
+  - id: search-member
+    action: click
+    target:
+      description: Search button in the member search form
+      primary:
+        strategy: relative
+        anchorText: Member Number
+        direction: below
+        controlType: submit button
+      fallbacks:
+        - strategy: accessible
+          role: button
+          name: Search
+    wait:
+      type: text
+      text: Accounts
+      timeoutMs: 5000
+
+  - id: extract-savings-balance
+    action: extract
+    target:
+      description: Savings balance cell in the accounts table
+      primary:
+        strategy: structural
+        description: Balance cell in the Accounts table for the Savings row
+        rowText: Savings
+        columnText: Balance
+    output:
+      name: balance
+      parseAs: money
+
+checkpoint:
+  description: Savings balance was extracted from the member account table.
+  conditions:
+    - type: output_present
+      output: balance
+
+policy:
+  allowedOrigins:
+    - "{{origin}}"
+    - http://localhost:3000
+  allowedRoutes:
+    - /servicing/*
+  allowedActions:
+    - navigate
+    - click
+    - fill
+    - select
+    - extract
+    - wait
+  risk: READ_ONLY

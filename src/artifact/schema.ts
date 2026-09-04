@@ -207,7 +207,7 @@ const applicationCompatibilitySchema = z.object({
 });
 
 const capabilityPolicySchema = z.object({
-  allowedOrigins: z.array(z.string().url()).nonempty(),
+  allowedOrigins: z.array(z.string().min(1)).nonempty(),
   allowedRoutes: z.array(z.string().min(1)).nonempty(),
   allowedActions: z.array(z.enum(stepActions)).nonempty(),
   risk: z.enum(["READ_ONLY", "REVERSIBLE_WRITE", "IRREVERSIBLE_WRITE"]),

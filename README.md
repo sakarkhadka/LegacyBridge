@@ -41,6 +41,15 @@ npm run debug:surface
 
 This starts a temporary demo app, launches Chromium through Playwright, locates the `Member Number` field, locates the `Search` button, navigates to member `12345`, locates the Savings balance cell inside the accounts iframe, and extracts `$3,182.46`.
 
+Deterministic replay:
+
+```bash
+npm run replay -- --capability member.get-savings-balance --memberId 54321
+npm run replay -- --capability member.get-savings-balance --memberId 00000 --port 3102
+```
+
+The first command replays the hand-authored capability against a different member and returns a normalized money output. The second command returns `business_outcome / MEMBER_NOT_FOUND`. Both report `llmDecisionCalls: 0`.
+
 ## Demo App
 
 Start the local proxy target:
@@ -96,4 +105,4 @@ npm test
 npm audit --omit=optional
 ```
 
-Phase 1 tests validate that a well-formed capability artifact is accepted, malformed contracts are rejected, business outcomes are distinct from execution failures, and target descriptors do not leak Playwright selectors into the artifact schema. Phase 2 tests validate the local legacy banking proxy app and its deterministic runtime scenarios. Phase 3 tests validate the Playwright-backed surface adapter using semantic `TargetDescriptor` inputs.
+Phase 1 tests validate that a well-formed capability artifact is accepted, malformed contracts are rejected, business outcomes are distinct from execution failures, and target descriptors do not leak Playwright selectors into the artifact schema. Phase 2 tests validate the local legacy banking proxy app and its deterministic runtime scenarios. Phase 3 tests validate the Playwright-backed surface adapter using semantic `TargetDescriptor` inputs. Phase 4 tests validate deterministic replay from a YAML capability artifact with no model credentials or LLM decision calls.
