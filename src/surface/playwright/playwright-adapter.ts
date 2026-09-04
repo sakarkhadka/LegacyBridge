@@ -49,7 +49,8 @@ export class PlaywrightSurfaceAdapter implements SurfaceAdapter {
       frames: page.frames().map((frame) => ({
         name: frame.name() || undefined,
         url: frame.url()
-      }))
+      })),
+      controls: await collectControls(page)
     };
   }
 
@@ -79,13 +80,13 @@ export class PlaywrightSurfaceAdapter implements SurfaceAdapter {
           return { ok: false, observed: "fill requires a resolved target and string value" };
         }
         await resolved.locator.fill(action.value);
-        return { ok: true };
+        return { ok: true, observed: "filled target" };
       case "select":
         if (!resolved || typeof action.value !== "string") {
           return { ok: false, observed: "select requires a resolved target and string value" };
         }
         await resolved.locator.selectOption(action.value);
-        return { ok: true };
+        return { ok: true, observed: "selected target option" };
       case "extract":
         if (!resolved) {
           return { ok: false, observed: "extract requires a resolved target" };
@@ -122,3 +123,26 @@ export class PlaywrightSurfaceAdapter implements SurfaceAdapter {
   }
 }
 
+async function collectControls(page: Page): Promise<SurfaceObservation["controls"]> {
+  const controls: NonNullable<SurfaceObservation["controls"]> = [];
+  for (const frame of page.frames()) {
+    controls.push(
+      ...(await frame.locator("input, textarea, select, button, a").evaluateAll((elements) =>
+        elements.map((element) => {
+          const htmlElement = element as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | HTMLButtonElement | HTMLAnchorElement;
+          const id = htmlElement.id;
+          const label = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`)?.textContent?.trim() : undefined;
+          return {
+            tag: element.tagName.toLowerCase(),
+            type: element.getAttribute("type") ?? undefined,
+            label,
+            text: element.textContent?.trim() || undefined,
+            value: "value" in htmlElement ? htmlElement.value : undefined
+          };
+        })
+      ).catch(() => []))
+    );
+  }
+
+  return controls;
+}

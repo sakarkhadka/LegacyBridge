@@ -212,6 +212,12 @@ async function fromFrameLocator(locator: Locator, strategyUsed: string, confiden
 async function structuralCandidateInFrame(frame: Frame, strategy: StructuralLocator): Promise<Omit<Candidate, "fallbackUsed">> {
   const tables = frame.locator("table");
   const tableCount = await tables.count();
+  const relaxedStrategy = strategy.containerText
+    ? {
+      ...strategy,
+      containerText: undefined
+    }
+    : undefined;
 
   for (let tableIndex = 0; tableIndex < tableCount; tableIndex += 1) {
     const table = tables.nth(tableIndex);
@@ -249,6 +255,10 @@ async function structuralCandidateInFrame(frame: Frame, strategy: StructuralLoca
         confidence: 0.82
       };
     }
+  }
+
+  if (relaxedStrategy) {
+    return structuralCandidateInFrame(frame, relaxedStrategy);
   }
 
   return {

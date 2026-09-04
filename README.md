@@ -9,7 +9,7 @@ Model discovers
   -> Human resolves uncertainty
 ```
 
-This repository is being built for the Computer-Use Automation System take-home project. The current state is Phase 6 complete: deterministic replay now uses structural policy enforcement and sensitive runtime values are redacted from structured output. Implementation progress is tracked in [status.md](status.md).
+This repository is being built for the Computer-Use Automation System take-home project. The current state is Phase 7 implemented: the discovery loop can drive the live UI through a structured model interface, with a scripted verification path and an OpenAI Responses API adapter ready for live model runs. Implementation progress is tracked in [status.md](status.md).
 
 ## Setup
 
@@ -44,6 +44,15 @@ npm run debug:surface
 ```
 
 This starts a temporary demo app, launches Chromium through Playwright, locates the `Member Number` field, locates the `Search` button, navigates to member `12345`, locates the Savings balance cell inside the accounts iframe, and extracts `$3,182.46`.
+
+Discovery:
+
+```bash
+npm run demo:discover -- --scripted
+OPENAI_API_KEY=... npm run demo:discover -- --timeoutMs 120000
+```
+
+The scripted command verifies the same observe-decide-act loop locally without an API call. The live command uses the OpenAI Responses API adapter and requires `OPENAI_API_KEY`. Discovery decisions are schema-validated before policy checks and surface execution.
 
 Deterministic replay:
 
@@ -127,4 +136,4 @@ npm test
 npm audit --omit=optional
 ```
 
-Phase 1 tests validate that a well-formed capability artifact is accepted, malformed contracts are rejected, business outcomes are distinct from execution failures, and target descriptors do not leak Playwright selectors into the artifact schema. Phase 2 tests validate the local legacy banking proxy app and its deterministic runtime scenarios. Phase 3 tests validate the Playwright-backed surface adapter using semantic `TargetDescriptor` inputs. Phase 4 tests validate deterministic replay from a YAML capability artifact with no model credentials or LLM decision calls. Phase 5 tests validate runtime classification and bounded recovery behavior. Phase 6 tests validate policy enforcement and sensitive-data redaction.
+Phase 1 tests validate that a well-formed capability artifact is accepted, malformed contracts are rejected, business outcomes are distinct from execution failures, and target descriptors do not leak Playwright selectors into the artifact schema. Phase 2 tests validate the local legacy banking proxy app and its deterministic runtime scenarios. Phase 3 tests validate the Playwright-backed surface adapter using semantic `TargetDescriptor` inputs. Phase 4 tests validate deterministic replay from a YAML capability artifact with no model credentials or LLM decision calls. Phase 5 tests validate runtime classification and bounded recovery behavior. Phase 6 tests validate policy enforcement and sensitive-data redaction. Phase 7 tests validate the discovery loop, decision schema, policy-blocked model actions, and verified goal completion.

@@ -21,6 +21,13 @@ export type SurfaceObservation = {
     title?: string;
     url: string;
   }>;
+  controls?: Array<{
+    tag: string;
+    type?: string;
+    label?: string;
+    text?: string;
+    value?: string;
+  }>;
   screenshot?: EvidenceReference;
 };
 
@@ -54,4 +61,3 @@ export interface SurfaceAdapter {
   captureEvidence(): Promise<EvidenceReference>;
   getSession(): SessionHandle;
 }
-
