@@ -9,7 +9,7 @@ Model discovers
   -> Human resolves uncertainty
 ```
 
-This repository is being built for the Computer-Use Automation System take-home project. The current state is Phase 8 implemented: a successful discovery trace can be compiled into a redacted draft capability artifact and replayed deterministically with a different member. Implementation progress is tracked in [status.md](status.md).
+This repository is being built for the Computer-Use Automation System take-home project. The current state is Phase 9 implemented: same-session human handoff now pauses automation, records human action evidence, verifies resume, and continues automation in the original browser session. Implementation progress is tracked in [status.md](status.md).
 
 ## Setup
 
@@ -36,7 +36,7 @@ npm run demo:app-error
 npm run demo:handoff
 ```
 
-These commands are scaffolded now and will be wired up as each implementation phase lands.
+This path exercises the implemented discovery, compilation, deterministic replay, recovery, failure classification, and same-session handoff demos.
 
 Surface adapter debug:
 
@@ -77,6 +77,14 @@ npm run replay -- --memberId 54321 --scenario error --port 3115
 ```
 
 The first command replays the hand-authored capability against a different member and returns a normalized money output. The second command returns `business_outcome / MEMBER_NOT_FOUND`. The scenario commands demonstrate known interstitial recovery, slow-load recovery metadata, permission denial, session expiration, and app-error classification. All replay commands report `llmDecisionCalls: 0`.
+
+Human handoff:
+
+```bash
+npm run demo:handoff
+```
+
+The handoff demo starts automation, triggers a session-expired condition, creates an intervention on the same browser session, transfers ownership to human, blocks automation while human owns the session, records redacted human input plus click/navigation actions, verifies the resume checkpoint, and continues automation to extract member `54321`'s savings balance. The output includes ownership transitions and `sameSessionRetained: true`.
 
 ## Safety
 
@@ -146,4 +154,4 @@ npm test
 npm audit --omit=optional
 ```
 
-Phase 1 tests validate that a well-formed capability artifact is accepted, malformed contracts are rejected, business outcomes are distinct from execution failures, and target descriptors do not leak Playwright selectors into the artifact schema. Phase 2 tests validate the local legacy banking proxy app and its deterministic runtime scenarios. Phase 3 tests validate the Playwright-backed surface adapter using semantic `TargetDescriptor` inputs. Phase 4 tests validate deterministic replay from a YAML capability artifact with no model credentials or LLM decision calls. Phase 5 tests validate runtime classification and bounded recovery behavior. Phase 6 tests validate policy enforcement and sensitive-data redaction. Phase 7 tests validate the discovery loop, decision schema, policy-blocked model actions, and verified goal completion. Phase 8 tests validate compiling a successful discovery trace into a redacted draft YAML artifact, schema-validating that generated artifact, and replaying it against member `54321` with no LLM decisions.
+Phase 1 tests validate that a well-formed capability artifact is accepted, malformed contracts are rejected, business outcomes are distinct from execution failures, and target descriptors do not leak Playwright selectors into the artifact schema. Phase 2 tests validate the local legacy banking proxy app and its deterministic runtime scenarios. Phase 3 tests validate the Playwright-backed surface adapter using semantic `TargetDescriptor` inputs. Phase 4 tests validate deterministic replay from a YAML capability artifact with no model credentials or LLM decision calls. Phase 5 tests validate runtime classification and bounded recovery behavior. Phase 6 tests validate policy enforcement and sensitive-data redaction. Phase 7 tests validate the discovery loop, decision schema, policy-blocked model actions, and verified goal completion. Phase 8 tests validate compiling a successful discovery trace into a redacted draft YAML artifact, schema-validating that generated artifact, and replaying it against member `54321` with no LLM decisions. Phase 9 tests validate same-session handoff, explicit ownership transfer, blocked automation during human control, redacted human action evidence, operator status, and resume verification.

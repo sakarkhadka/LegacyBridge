@@ -35,3 +35,9 @@ export type HumanActionRecord = {
   redactedValue?: string;
 };
 
+export type OwnershipTransition = {
+  from: ControlOwner;
+  to: ControlOwner;
+  state: InterventionRunState;
+  timestamp: string;
+};

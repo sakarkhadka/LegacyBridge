@@ -1,10 +1,15 @@
+import type { Page } from "playwright";
 import { createDemoAppServer } from "../../demo-app/server.js";
 import { loadCapabilityArtifact, loadCapabilityArtifactFromPath, saveCapabilityArtifact } from "../artifact/loader.js";
 import { runDiscovery } from "../discovery/agent.js";
 import { compileDiscoveryToArtifact } from "../discovery/artifact-compiler.js";
 import { OpenAIDiscoveryModel, ScriptedDiscoveryModel } from "../discovery/model.js";
+import { InterventionManager } from "../intervention/intervention-manager.js";
+import { createOperatorServer } from "../intervention/operator-server.js";
 import { redactStructuredValue } from "../policy/redaction.js";
+import { waitForDefinition } from "../replay/checkpoint-engine.js";
 import { replayCapability } from "../replay/executor.js";
+import { parseOutput } from "../replay/output-extractor.js";
 import { PlaywrightSurfaceAdapter } from "../surface/playwright/playwright-adapter.js";
 import { createPlaywrightSession } from "../surface/playwright/session.js";
 
@@ -30,6 +35,8 @@ if (!knownCommands.has(command)) {
   await runDiscoverCommand(process.argv.slice(3));
 } else if (command === "compile-discovery") {
   await runCompileDiscoveryCommand(process.argv.slice(3));
+} else if (command === "handoff") {
+  await runHandoffCommand(process.argv.slice(3));
 } else {
   console.log(`LegacyBridge command scaffold: ${command}`);
   console.log("Implementation pending. See status.md for current progress.");
@@ -46,6 +53,9 @@ function printHelp(): void {
   console.log("Discovery example:");
   console.log("  npm run demo:discover -- --scripted");
   console.log("  npm run demo:compile");
+  console.log("");
+  console.log("Handoff example:");
+  console.log("  npm run demo:handoff");
 }
 
 async function runDiscoverCommand(args: string[]): Promise<void> {
@@ -214,6 +224,172 @@ async function runCompileDiscoveryCommand(args: string[]): Promise<void> {
       });
     });
   }
+}
+
+async function runHandoffCommand(args: string[]): Promise<void> {
+  const options = parseArgs(args);
+  const port = Number(options.port ?? "3105");
+  const origin = `http://127.0.0.1:${port}`;
+  const memberId = options.memberId ?? "54321";
+  const server = createDemoAppServer();
+
+  await new Promise<void>((resolve) => {
+    server.listen(port, "127.0.0.1", resolve);
+  });
+
+  const session = await createPlaywrightSession({
+    headless: options.headless !== "false"
+  });
+  const adapter = new PlaywrightSurfaceAdapter({
+    page: session.page,
+    sessionId: session.id,
+    evidenceDir: "evidence/tmp/handoff"
+  });
+  const manager = new InterventionManager({
+    sensitiveValues: [memberId]
+  });
+  const operator = await createOperatorServer(manager);
+
+  try {
+    manager.assertAutomationMayAct();
+    await adapter.act({
+      type: "navigate",
+      value: `${origin}/servicing/search?scenario=session-expired`
+    });
+
+    const intervention = await manager.trigger({
+      runId: `handoff-${Date.now()}`,
+      capabilityId: "member.get-savings-balance",
+      currentStepId: "navigate-to-search",
+      reason: "SESSION_EXPIRED",
+      currentRoute: session.page.url(),
+      lastActionIds: ["navigate-to-search"],
+      surface: adapter
+    });
+
+    manager.takeHumanControl();
+    const blockedAutomationMessage = captureBlockedAutomation(manager);
+
+    manager.recordHumanInput("Operator reauthentication member hint", memberId);
+    manager.recordHumanClick("Start New Session");
+    await session.page.getByRole("link", { name: "Start New Session" }).click();
+    manager.recordHumanNavigation(`${origin}/servicing/search`);
+
+    manager.requestResume();
+    const resume = await manager.verifyResume([
+      {
+        type: "text_present",
+        value: "Member Search"
+      }
+    ], {
+      page: session.page,
+      adapter,
+      outputs: {}
+    });
+
+    manager.assertAutomationMayAct();
+    const balance = await continueSavingsLookup({
+      adapter,
+      page: session.page,
+      memberId
+    });
+    manager.complete();
+
+    console.log(JSON.stringify(redactStructuredValue({
+      status: "completed",
+      operatorUrl: operator.url,
+      sameSessionRetained: session.id === adapter.getSession().id,
+      blockedAutomationMessage,
+      intervention: {
+        id: intervention.id,
+        reason: intervention.reason,
+        currentStepId: intervention.currentStepId,
+        currentRoute: intervention.currentRoute,
+        screenshot: intervention.screenshot
+      },
+      resume,
+      evidence: manager.evidence(),
+      finalAutomationResult: {
+        balance
+      }
+    }, [memberId]), null, 2));
+  } finally {
+    await operator.close();
+    await session.close();
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+}
+
+function captureBlockedAutomation(manager: InterventionManager): string {
+  try {
+    manager.assertAutomationMayAct();
+    return "automation unexpectedly allowed";
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+async function continueSavingsLookup(options: {
+  adapter: PlaywrightSurfaceAdapter;
+  page: Page;
+  memberId: string;
+}) {
+  const { adapter, memberId, page } = options;
+  const memberField = await adapter.locate({
+    description: "Member Number field",
+    primary: {
+      strategy: "label",
+      text: "Member Number"
+    }
+  });
+  await adapter.act({
+    type: "fill",
+    value: memberId
+  }, memberField);
+
+  const searchButton = await adapter.locate({
+    description: "Search button in the member search form",
+    primary: {
+      strategy: "relative",
+      anchorText: "Member Number",
+      direction: "below",
+      controlType: "submit button"
+    }
+  });
+  await adapter.act({
+    type: "click"
+  }, searchButton);
+  await waitForDefinition({
+    type: "text",
+    text: "Accounts",
+    timeoutMs: 5000
+  }, {
+    page,
+    adapter,
+    outputs: {}
+  });
+
+  const balanceCell = await adapter.locate({
+    description: "Savings balance cell",
+    primary: {
+      strategy: "structural",
+      description: "Balance cell in the Accounts table for the Savings row",
+      rowText: "Savings",
+      columnText: "Balance"
+    }
+  });
+  const extracted = await adapter.act({
+    type: "extract"
+  }, balanceCell);
+  return extracted.observed ? parseOutput(extracted.observed, "money") : undefined;
 }
 
 function parseArgs(args: string[]): Record<string, string> {
