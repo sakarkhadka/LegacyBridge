@@ -2,29 +2,56 @@
 
 ## 1. Architecture
 
-TBD.
+Decision: LegacyBridge separates discovery from production replay. Discovery accepts a natural-language goal, asks an LLM for typed actions, validates those actions, enforces policy, and drives a live UI through `SurfaceAdapter`. Replay accepts a saved capability artifact and inputs, then executes deterministic steps without LLM decisions.
+
+Why: This matches the record-once / replay-many model in the assignment. The LLM is useful for finding the workflow once, but production invocation should be cheap, reviewable, and predictable.
+
+Trade-off: The implementation has more explicit contracts than a quick Playwright script. That extra structure pays off because policy, evidence, handoff, validation, and catalog invocation all reuse the same artifact and runtime boundaries.
 
 ## 2. Artifact schema
 
-TBD.
+Decision: The capability artifact is a YAML document with identity, version, lifecycle status, application fingerprint, typed inputs, typed outputs, business outcomes, ordered steps, semantic target descriptors, waits, recovery metadata, checkpoint, policy, and optional validation metadata.
+
+Why: A calling agent and a human reviewer should understand what the capability does without reading browser code. Inputs such as `memberId` are parameterized and marked sensitive. Outputs such as `balance` are typed as money. Targets use semantic strategies like label, accessible role, relative position, and structural table lookup rather than raw selectors.
+
+Trade-off: The artifact schema is narrower than a universal RPA model. It intentionally supports the locators and actions needed for this vertical slice while leaving extension points for desktop accessibility or vision-coordinate adapters.
 
 ## 3. Determinism & error handling
 
-TBD.
+Decision: Replay runs the artifact step by step through `ReplayEngine`, resolves each target deterministically, waits for declared conditions, parses declared outputs, and verifies the checkpoint before returning success. Replay reports `llmDecisionCalls: 0`.
+
+Why: Production agents should not re-reason about stable enterprise UIs on every call. The important runtime complexity is not constant UI drift; it is operational conditions such as not found, permission denied, session expiration, interstitials, slow loads, and app errors.
+
+Trade-off: Known recoveries are explicit and bounded. For example, the replay engine can dismiss a known system notice and retry slow loads, but it does not improvise through unknown states. Unknown or hard conditions become structured failures with step id, expected state, observed state, and recoverability.
 
 ## 4. Heterogeneity & multi-tenant
 
-TBD.
+Decision: Browser automation is implemented with Playwright, but core contracts depend on `SurfaceAdapter`, not Playwright. The artifact records target identity; the adapter decides how to perceive and act on a specific surface.
+
+Why: The real environment includes modern web, legacy web, and desktop apps. A future `DesktopAccessibilityAdapter` could resolve accessible roles and labels from OS accessibility APIs. A future `VisionCoordinateAdapter` could resolve the same target description through screenshots and coordinates.
+
+Trade-off: Desktop and multi-tenant storage are not implemented. The design story is encoded through application fingerprints, compatibility metadata, semantic targets, and the separation between vendor capability and future tenant overrides. Significant drift should trigger revalidation rather than silent improvisation.
 
 ## 5. Escalation & handoff
 
-TBD.
+Decision: Human handoff uses an explicit control state machine: automation owns the session, automation pauses, a human owns the same live browser session, the human acts, resume is requested, a checkpoint is verified, and automation owns the session again.
+
+Why: The assignment specifically rejects handoff by opening a new browser. The intervention request carries run id, capability id, step id, reason, current route, screenshot reference, last actions, owner, and timestamp. Human click, input, and navigation actions are recorded as evidence.
+
+Trade-off: The operator surface is intentionally minimal. The demo drives the human action with Playwright for repeatability, but the ownership model, evidence, and same-session mechanics are real and can be observed headfully.
 
 ## 6. Safety
 
-TBD.
+Decision: Policy is enforced structurally before surface execution. It checks allowed origins, routes, action types, risk classification, and human approval for irreversible actions. Sensitive inputs are redacted from artifacts, logs, evidence, and structured failures.
+
+Why: Prompt instructions alone are not a safety boundary, especially for regulated financial workflows. Replay and discovery both pass through the same policy and redaction seams.
+
+Trade-off: This is not production compliance tooling. It does not implement real authentication, tenant secrets, screenshot-region masking, or audit retention policy. It demonstrates the core guardrail model and documents the limits.
 
 ## 7. Cuts
 
-TBD.
+Decision: The project focuses on one high-quality vertical slice: member savings balance lookup on a local legacy-style servicing app.
 
+Why: The assignment rewards clear boundaries, correct replay semantics, error handling, safety, handoff, and evidence more than infrastructure breadth.
+
+Trade-off: I did not build distributed orchestration, queues, a database-backed registry, real bank integrations, production auth, desktop automation, or a full co-browsing console. With more time, I would add tenant override files, screenshot redaction masks tied to filled target regions, a small approval UI for promoting `validated` artifacts to `approved`, and one second tenant variant to demonstrate cross-tenant reuse.

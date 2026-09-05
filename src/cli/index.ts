@@ -52,8 +52,7 @@ if (!knownCommands.has(command)) {
 } else if (command === "catalog") {
   await runCatalogCommand(process.argv.slice(3));
 } else {
-  console.log(`LegacyBridge command scaffold: ${command}`);
-  console.log("Implementation pending. See status.md for current progress.");
+  printHelp();
 }
 
 function printHelp(): void {

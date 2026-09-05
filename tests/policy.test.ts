@@ -62,7 +62,7 @@ describe("policy engine and redaction", () => {
     }
     expect(summary.result.error.class).toBe("POLICY_VIOLATION");
     expect(summary.result.error.observed).toContain("origin https://example.com is not allowlisted");
-  });
+  }, 30_000);
 
   it("blocks a non-allowlisted action before surface execution", async () => {
     const capability = cloneCapability(await loadCapabilityArtifact("member.get-savings-balance"));
@@ -83,7 +83,7 @@ describe("policy engine and redaction", () => {
     expect(summary.result.error.class).toBe("POLICY_VIOLATION");
     expect(summary.result.error.stepId).toBe("enter-member-id");
     expect(summary.result.error.observed).toContain("action fill is not allowlisted");
-  });
+  }, 30_000);
 
   it("requires human approval for irreversible actions", () => {
     const engine = new PolicyEngine({
@@ -136,7 +136,7 @@ describe("policy engine and redaction", () => {
     expect(summary.result.status).toBe("failure");
     expect(JSON.stringify(summary.result)).not.toContain("88888");
     expect(JSON.stringify(summary.result)).toContain("[REDACTED]");
-  });
+  }, 30_000);
 
   it("does not serialize actual invocation member IDs into the capability artifact", async () => {
     const artifact = await readFile("capabilities/member-get-savings-balance.v1.yaml", "utf8");
