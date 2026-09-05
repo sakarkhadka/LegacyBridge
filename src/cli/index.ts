@@ -1,7 +1,9 @@
 import type { Page } from "playwright";
 import { copyFile, mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { createDemoAppServer } from "../../demo-app/server.js";
 import { loadCapabilityArtifact, loadCapabilityArtifactFromPath, saveCapabilityArtifact } from "../artifact/loader.js";
+import { validateCapabilityStability } from "../catalog/validation.js";
 import { runDiscovery } from "../discovery/agent.js";
 import { compileDiscoveryToArtifact } from "../discovery/artifact-compiler.js";
 import { OpenAIDiscoveryModel, ScriptedDiscoveryModel } from "../discovery/model.js";
@@ -42,6 +44,8 @@ if (!knownCommands.has(command)) {
   await runHandoffCommand(process.argv.slice(3));
 } else if (command === "evidence") {
   await runEvidenceCommand(process.argv.slice(3));
+} else if (command === "validate-capability") {
+  await runValidateCapabilityCommand(process.argv.slice(3));
 } else {
   console.log(`LegacyBridge command scaffold: ${command}`);
   console.log("Implementation pending. See status.md for current progress.");
@@ -64,6 +68,9 @@ function printHelp(): void {
   console.log("");
   console.log("Evidence example:");
   console.log("  npm run demo:evidence");
+  console.log("");
+  console.log("Validation example:");
+  console.log("  npm run validate-capability -- member.get-savings-balance --runs 5");
 }
 
 async function runDiscoverCommand(args: string[]): Promise<void> {
@@ -470,6 +477,78 @@ async function runEvidenceCommand(args: string[]): Promise<void> {
       "evidence/artifacts/member-get-savings-balance.v1.yaml"
     ]
   }, null, 2));
+}
+
+async function runValidateCapabilityCommand(args: string[]): Promise<void> {
+  const positional = args.filter((arg) => !arg.startsWith("--") && !args[args.indexOf(arg) - 1]?.startsWith("--"));
+  const options = parseArgs(args);
+  const capabilityId = positional[0] ?? options.capability ?? "member.get-savings-balance";
+  const runs = Number(options.runs ?? "5");
+  const memberId = options.memberId ?? "54321";
+  const port = Number(options.port ?? "3106");
+  const origin = `http://127.0.0.1:${port}`;
+  const server = createDemoAppServer();
+
+  await new Promise<void>((resolve) => {
+    server.listen(port, "127.0.0.1", resolve);
+  });
+
+  try {
+    const capability = options.capabilityPath
+      ? await loadCapabilityArtifactFromPath(options.capabilityPath)
+      : await loadCapabilityArtifact(capabilityId);
+    const report = await validateCapabilityStability({
+      capability,
+      origin,
+      runs,
+      headless: options.headless !== "false",
+      inputsForRun: () => ({
+        memberId
+      })
+    });
+    const validatedCapability = {
+      ...capability,
+      validation: report.validation
+    };
+    const outputPath = options.output ?? defaultCapabilityPath(capabilityId);
+    await saveCapabilityArtifact(outputPath, validatedCapability);
+
+    console.log([
+      `Capability: ${report.capabilityId}`,
+      `Version: ${report.version}`,
+      "",
+      `Runs: ${report.runs}`,
+      `Successes: ${report.successes}`,
+      `Failures: ${report.failures}`,
+      "",
+      `Primary locator usage: ${formatPercent(report.primaryLocatorUsage)}`,
+      `Fallback locator usage: ${formatPercent(report.fallbackLocatorUsage)}`,
+      "",
+      `Status: ${report.status}`,
+      `Validation stored: ${outputPath}`
+    ].join("\n"));
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+}
+
+function defaultCapabilityPath(capabilityId: string): string {
+  if (capabilityId === "member.get-savings-balance") {
+    return join("capabilities", "member-get-savings-balance.v1.yaml");
+  }
+  return join("capabilities", `${capabilityId}.yaml`);
+}
+
+function formatPercent(value: number): string {
+  return `${Math.round(value * 100)}%`;
 }
 
 async function createJsonlRecorder(path: string, options: {

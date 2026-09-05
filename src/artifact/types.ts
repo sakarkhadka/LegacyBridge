@@ -182,6 +182,15 @@ export type CapabilityPolicy = {
   approvalRequired?: boolean;
 };
 
+export type CapabilityValidation = {
+  runs: number;
+  successes: number;
+  failures: number;
+  primaryLocatorUsage: number;
+  fallbackLocatorUsage: number;
+  lastValidatedAt: string;
+};
+
 export type CapabilityArtifact = {
   schemaVersion: string;
   capability: {
@@ -198,5 +207,5 @@ export type CapabilityArtifact = {
   steps: CapabilityStep[];
   checkpoint: CheckpointDefinition;
   policy: CapabilityPolicy;
+  validation?: CapabilityValidation;
 };
-

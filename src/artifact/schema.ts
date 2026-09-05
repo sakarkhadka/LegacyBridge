@@ -214,6 +214,23 @@ const capabilityPolicySchema = z.object({
   approvalRequired: z.boolean().optional()
 });
 
+const capabilityValidationSchema = z.object({
+  runs: z.number().int().positive(),
+  successes: z.number().int().min(0),
+  failures: z.number().int().min(0),
+  primaryLocatorUsage: z.number().min(0).max(1),
+  fallbackLocatorUsage: z.number().min(0).max(1),
+  lastValidatedAt: z.string().datetime()
+}).superRefine((validation, ctx) => {
+  if (validation.successes + validation.failures !== validation.runs) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "validation successes plus failures must equal runs",
+      path: ["runs"]
+    });
+  }
+});
+
 export const capabilityArtifactSchema = z
   .object({
     schemaVersion: z.string().min(1),
@@ -230,7 +247,8 @@ export const capabilityArtifactSchema = z
     outcomes: z.array(businessOutcomeDefinitionSchema),
     steps: z.array(capabilityStepSchema).nonempty(),
     checkpoint: checkpointDefinitionSchema,
-    policy: capabilityPolicySchema
+    policy: capabilityPolicySchema,
+    validation: capabilityValidationSchema.optional()
   })
   .superRefine((artifact, ctx) => {
     const inputNames = new Set(Object.keys(artifact.inputs));
