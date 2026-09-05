@@ -16,6 +16,7 @@
     "demo-app": "tsx demo-app/server.ts",
     "demo:discover": "tsx src/cli/index.ts discover",
     "demo:compile": "tsx src/cli/index.ts compile-discovery",
+    "demo:evidence": "tsx src/cli/index.ts evidence",
     "demo:replay": "tsx src/cli/index.ts replay",
     "demo:not-found": "tsx src/cli/index.ts replay --memberId 00000",
     "demo:recovery": "tsx src/cli/index.ts replay --scenario interstitial",

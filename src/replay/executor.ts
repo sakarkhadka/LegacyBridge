@@ -1,5 +1,6 @@
 import type { Page } from "playwright";
 import type { CapabilityArtifact, CapabilityStep, ValueSource } from "../artifact/types.js";
+import type { EvidenceRecorder } from "../evidence/recorder.js";
 import { policyConfigFromCapability } from "../policy/config.js";
 import { PolicyEngine, policyRequestForUrl } from "../policy/policy-engine.js";
 import { redactExecutionResult, sensitiveValuesFromInputs } from "../policy/redaction.js";
@@ -24,6 +25,7 @@ export type ReplayInvocation = {
   scenario?: string;
   headless?: boolean;
   approvalGranted?: boolean;
+  evidence?: EvidenceRecorder;
 };
 
 export type ReplaySummary = {
@@ -60,8 +62,22 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
       adapter,
       outputs
     };
+    await invocation.evidence?.record("run_started", {
+      payload: {
+        mode: "replay",
+        origin: invocation.origin,
+        scenario: invocation.scenario,
+        llmDecisionCalls: 0
+      }
+    });
 
     for (const step of invocation.capability.steps) {
+      await invocation.evidence?.record("step_started", {
+        stepId: step.id,
+        payload: {
+          action: step.action
+        }
+      });
       const policyFailure = await precheckStepPolicy({
         capability: invocation.capability,
         step,
@@ -70,18 +86,31 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
         policyEngine
       });
       if (policyFailure) {
+        await invocation.evidence?.record("run_failed", {
+          stepId: step.id,
+          payload: {
+            result: policyFailure
+          }
+        });
         return summarize(policyFailure, recoveries, sensitiveValues);
       }
 
       const preconditionsPass = await conditionsPass(step.precondition, context);
       if (!preconditionsPass) {
-        return {
-          result: redactExecutionResult(failure({
+        const result = redactExecutionResult(failure({
             class: "PRECONDITION_FAILED",
             stepId: step.id,
             expected: "step preconditions pass",
             observed: await observedState(session.page)
-          }), sensitiveValues),
+          }), sensitiveValues);
+        await invocation.evidence?.record("run_failed", {
+          stepId: step.id,
+          payload: {
+            result
+          }
+        });
+        return {
+          result,
           llmDecisionCalls: 0,
           recoveries
         };
@@ -91,6 +120,12 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
       const stepResult = await runStepWithRetries(step, invocation, adapter, outputs, session.page);
       const stepElapsedMs = Date.now() - stepStartedAt;
       if (stepResult.status !== "success") {
+        await invocation.evidence?.record("run_failed", {
+          stepId: step.id,
+          payload: {
+            result: stepResult
+          }
+        });
         return {
           result: redactExecutionResult(stepResult, sensitiveValues),
           llmDecisionCalls: 0,
@@ -105,12 +140,29 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
           action: `waited ${stepElapsedMs}ms for step completion`,
           recovered: true
         });
+        await invocation.evidence?.record("recovery_attempted", {
+          stepId: step.id,
+          payload: recoveries[recoveries.length - 1]
+        });
       }
 
-      recoveries.push(...(await recoverKnownInterstitials(step, adapter)));
+      const knownInterstitialRecoveries = await recoverKnownInterstitials(step, adapter);
+      recoveries.push(...knownInterstitialRecoveries);
+      for (const recovery of knownInterstitialRecoveries) {
+        await invocation.evidence?.record("recovery_attempted", {
+          stepId: step.id,
+          payload: recovery
+        });
+      }
 
       const hardRuntimeCondition = await detectHardRuntimeCondition(session.page, step.id);
       if (hardRuntimeCondition) {
+        await invocation.evidence?.record("run_failed", {
+          stepId: step.id,
+          payload: {
+            result: hardRuntimeCondition
+          }
+        });
         return {
           result: redactExecutionResult(hardRuntimeCondition, sensitiveValues),
           llmDecisionCalls: 0,
@@ -120,8 +172,22 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
 
       const outcome = await detectBusinessOutcome(invocation.capability, context);
       if (outcome) {
+        const result = businessOutcome(outcome);
+        await invocation.evidence?.record("business_outcome_detected", {
+          stepId: step.id,
+          payload: {
+            outcome
+          }
+        });
+        await invocation.evidence?.record("run_completed", {
+          stepId: step.id,
+          payload: {
+            result,
+            llmDecisionCalls: 0
+          }
+        });
         return {
-          result: businessOutcome(outcome),
+          result,
           llmDecisionCalls: 0,
           recoveries
         };
@@ -131,8 +197,22 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
       if (!waited) {
         const outcomeAfterWait = await detectBusinessOutcome(invocation.capability, context);
         if (outcomeAfterWait) {
+          const result = businessOutcome(outcomeAfterWait);
+          await invocation.evidence?.record("business_outcome_detected", {
+            stepId: step.id,
+            payload: {
+              outcome: outcomeAfterWait
+            }
+          });
+          await invocation.evidence?.record("run_completed", {
+            stepId: step.id,
+            payload: {
+              result,
+              llmDecisionCalls: 0
+            }
+          });
           return {
-            result: businessOutcome(outcomeAfterWait),
+            result,
             llmDecisionCalls: 0,
             recoveries
           };
@@ -140,6 +220,12 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
 
         const hardRuntimeConditionAfterWait = await detectHardRuntimeCondition(session.page, step.id);
         if (hardRuntimeConditionAfterWait) {
+          await invocation.evidence?.record("run_failed", {
+            stepId: step.id,
+            payload: {
+              result: hardRuntimeConditionAfterWait
+            }
+          });
           return {
             result: redactExecutionResult(hardRuntimeConditionAfterWait, sensitiveValues),
             llmDecisionCalls: 0,
@@ -147,14 +233,21 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
           };
         }
 
-        return {
-          result: redactExecutionResult(failure({
+        const result = redactExecutionResult(failure({
             class: "LOAD_TIMEOUT",
             stepId: step.id,
             expected: `wait condition ${step.wait?.type ?? "unknown"} to pass`,
             observed: await observedState(session.page),
             recoverable: Boolean(step.recovery?.retries)
-          }), sensitiveValues),
+          }), sensitiveValues);
+        await invocation.evidence?.record("run_failed", {
+          stepId: step.id,
+          payload: {
+            result
+          }
+        });
+        return {
+          result,
           llmDecisionCalls: 0,
           recoveries
         };
@@ -162,13 +255,20 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
 
       const postconditionsPass = await conditionsPass(step.postcondition, context);
       if (!postconditionsPass) {
-        return {
-          result: redactExecutionResult(failure({
+        const result = redactExecutionResult(failure({
             class: "POSTCONDITION_FAILED",
             stepId: step.id,
             expected: "step postconditions pass",
             observed: await observedState(session.page)
-          }), sensitiveValues),
+          }), sensitiveValues);
+        await invocation.evidence?.record("run_failed", {
+          stepId: step.id,
+          payload: {
+            result
+          }
+        });
+        return {
+          result,
           llmDecisionCalls: 0,
           recoveries
         };
@@ -177,17 +277,34 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
 
     const checkpointPasses = await conditionsPass(invocation.capability.checkpoint.conditions, context);
     if (!checkpointPasses) {
-      return {
-        result: redactExecutionResult(failure({
+      const result = redactExecutionResult(failure({
           class: "CHECKPOINT_FAILED",
           expected: invocation.capability.checkpoint.description,
           observed: await observedState(session.page)
-        }), sensitiveValues),
+        }), sensitiveValues);
+      await invocation.evidence?.record("run_failed", {
+        payload: {
+          result
+        }
+      });
+      return {
+        result,
         llmDecisionCalls: 0,
         recoveries
       };
     }
 
+    await invocation.evidence?.record("checkpoint_passed", {
+      payload: {
+        checkpoint: invocation.capability.checkpoint
+      }
+    });
+    await invocation.evidence?.record("run_completed", {
+      payload: {
+        result: success(outputs),
+        llmDecisionCalls: 0
+      }
+    });
     return {
       result: success(outputs),
       llmDecisionCalls: 0,
@@ -246,6 +363,12 @@ async function runStep(
   outputs: Record<string, TypedOutput>
 ): Promise<ExecutionResult> {
   const target = step.target ? await adapter.locate(step.target) : undefined;
+  await invocation.evidence?.record("target_resolved", {
+    stepId: step.id,
+    payload: {
+      target
+    }
+  });
   if (step.target && target?.matchCount !== 1) {
     return failure({
       class: target && target.matchCount > 1 ? "TARGET_AMBIGUOUS" : "TARGET_NOT_FOUND",
@@ -275,6 +398,12 @@ async function runStep(
       observed: actionResult.observed ?? "action failed"
     });
   }
+  await invocation.evidence?.record("action_completed", {
+    stepId: step.id,
+    payload: {
+      action: actionResult
+    }
+  });
 
   if (step.output) {
     if (!actionResult.observed) {
@@ -366,6 +495,16 @@ async function precheckStepPolicy(options: {
     actionRisk,
     approvalGranted
   }));
+  await invocation.evidence?.record("policy_checked", {
+    stepId: step.id,
+    payload: {
+      policy: decision,
+      action: step.action,
+      route: url.pathname,
+      origin: url.origin,
+      actionRisk
+    }
+  });
 
   if (decision.status === "allowed") {
     return undefined;

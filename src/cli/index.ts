@@ -1,9 +1,11 @@
 import type { Page } from "playwright";
+import { copyFile, mkdir } from "node:fs/promises";
 import { createDemoAppServer } from "../../demo-app/server.js";
 import { loadCapabilityArtifact, loadCapabilityArtifactFromPath, saveCapabilityArtifact } from "../artifact/loader.js";
 import { runDiscovery } from "../discovery/agent.js";
 import { compileDiscoveryToArtifact } from "../discovery/artifact-compiler.js";
 import { OpenAIDiscoveryModel, ScriptedDiscoveryModel } from "../discovery/model.js";
+import { EvidenceRecorder, JsonlEvidenceSink, resetJsonlEvidenceFile } from "../evidence/recorder.js";
 import { InterventionManager } from "../intervention/intervention-manager.js";
 import { createOperatorServer } from "../intervention/operator-server.js";
 import { redactStructuredValue } from "../policy/redaction.js";
@@ -18,6 +20,7 @@ const command = process.argv[2] ?? "help";
 const knownCommands = new Set([
   "compile-discovery",
   "discover",
+  "evidence",
   "replay",
   "handoff",
   "validate-capability",
@@ -37,6 +40,8 @@ if (!knownCommands.has(command)) {
   await runCompileDiscoveryCommand(process.argv.slice(3));
 } else if (command === "handoff") {
   await runHandoffCommand(process.argv.slice(3));
+} else if (command === "evidence") {
+  await runEvidenceCommand(process.argv.slice(3));
 } else {
   console.log(`LegacyBridge command scaffold: ${command}`);
   console.log("Implementation pending. See status.md for current progress.");
@@ -44,7 +49,7 @@ if (!knownCommands.has(command)) {
 
 function printHelp(): void {
   console.log("LegacyBridge CLI");
-  console.log("Commands: compile-discovery, discover, replay, handoff, validate-capability");
+  console.log("Commands: compile-discovery, discover, evidence, replay, handoff, validate-capability");
   console.log("");
   console.log("Replay example:");
   console.log("  npm run replay -- --capability member.get-savings-balance --memberId 54321");
@@ -56,6 +61,9 @@ function printHelp(): void {
   console.log("");
   console.log("Handoff example:");
   console.log("  npm run demo:handoff");
+  console.log("");
+  console.log("Evidence example:");
+  console.log("  npm run demo:evidence");
 }
 
 async function runDiscoverCommand(args: string[]): Promise<void> {
@@ -63,6 +71,13 @@ async function runDiscoverCommand(args: string[]): Promise<void> {
   const port = Number(options.port ?? "3103");
   const origin = `http://127.0.0.1:${port}`;
   const goal = options.goal ?? "Look up member 12345 and return their current savings balance.";
+  const evidence = options.evidencePath
+    ? await createJsonlRecorder(options.evidencePath, {
+      runId: `discovery-${Date.now()}`,
+      capabilityId: "member.get-savings-balance",
+      sensitiveValues: [extractMemberIdFromGoal(goal)].filter((value): value is string => Boolean(value))
+    })
+    : undefined;
   const server = createDemoAppServer();
 
   await new Promise<void>((resolve) => {
@@ -92,7 +107,8 @@ async function runDiscoverCommand(args: string[]): Promise<void> {
       model,
       policyCapability: capability,
       maxSteps: Number(options.maxSteps ?? "6"),
-      timeoutMs: Number(options.timeoutMs ?? "120000")
+      timeoutMs: Number(options.timeoutMs ?? "120000"),
+      evidence
     });
 
     const sensitiveValues = [extractMemberIdFromGoal(goal)].filter((value): value is string => Boolean(value));
@@ -119,6 +135,13 @@ async function runReplayCommand(args: string[]): Promise<void> {
   const options = parseArgs(args);
   const capabilityId = options.capability ?? "member.get-savings-balance";
   const memberId = options.memberId ?? "54321";
+  const evidence = options.evidencePath
+    ? await createJsonlRecorder(options.evidencePath, {
+      runId: `replay-${Date.now()}`,
+      capabilityId,
+      sensitiveValues: [memberId]
+    })
+    : undefined;
   const port = Number(options.port ?? "3101");
   const origin = `http://127.0.0.1:${port}`;
   const server = createDemoAppServer();
@@ -138,7 +161,8 @@ async function runReplayCommand(args: string[]): Promise<void> {
       },
       origin,
       scenario: options.scenario,
-      headless: options.headless !== "false"
+      headless: options.headless !== "false",
+      evidence
     });
 
     console.log(JSON.stringify(summary, null, 2));
@@ -231,6 +255,13 @@ async function runHandoffCommand(args: string[]): Promise<void> {
   const port = Number(options.port ?? "3105");
   const origin = `http://127.0.0.1:${port}`;
   const memberId = options.memberId ?? "54321";
+  const evidence = options.evidencePath
+    ? await createJsonlRecorder(options.evidencePath, {
+      runId: `handoff-${Date.now()}`,
+      capabilityId: "member.get-savings-balance",
+      sensitiveValues: [memberId]
+    })
+    : undefined;
   const server = createDemoAppServer();
 
   await new Promise<void>((resolve) => {
@@ -251,6 +282,12 @@ async function runHandoffCommand(args: string[]): Promise<void> {
   const operator = await createOperatorServer(manager);
 
   try {
+    await evidence?.record("run_started", {
+      payload: {
+        mode: "handoff",
+        trigger: "SESSION_EXPIRED"
+      }
+    });
     manager.assertAutomationMayAct();
     await adapter.act({
       type: "navigate",
@@ -266,14 +303,37 @@ async function runHandoffCommand(args: string[]): Promise<void> {
       lastActionIds: ["navigate-to-search"],
       surface: adapter
     });
+    await evidence?.record("intervention_created", {
+      stepId: intervention.currentStepId,
+      payload: {
+        intervention
+      }
+    });
 
     manager.takeHumanControl();
+    await evidence?.record("control_transferred", {
+      payload: {
+        transition: manager.evidence().ownershipTransitions.at(-1)
+      }
+    });
     const blockedAutomationMessage = captureBlockedAutomation(manager);
 
-    manager.recordHumanInput("Operator reauthentication member hint", memberId);
-    manager.recordHumanClick("Start New Session");
+    await evidence?.record("human_action", {
+      payload: {
+        humanAction: manager.recordHumanInput("Operator reauthentication member hint", memberId)
+      }
+    });
+    await evidence?.record("human_action", {
+      payload: {
+        humanAction: manager.recordHumanClick("Start New Session")
+      }
+    });
     await session.page.getByRole("link", { name: "Start New Session" }).click();
-    manager.recordHumanNavigation(`${origin}/servicing/search`);
+    await evidence?.record("human_action", {
+      payload: {
+        humanAction: manager.recordHumanNavigation(`${origin}/servicing/search`)
+      }
+    });
 
     manager.requestResume();
     const resume = await manager.verifyResume([
@@ -286,6 +346,12 @@ async function runHandoffCommand(args: string[]): Promise<void> {
       adapter,
       outputs: {}
     });
+    await evidence?.record("automation_resumed", {
+      payload: {
+        resume,
+        transition: manager.evidence().ownershipTransitions.at(-1)
+      }
+    });
 
     manager.assertAutomationMayAct();
     const balance = await continueSavingsLookup({
@@ -294,6 +360,14 @@ async function runHandoffCommand(args: string[]): Promise<void> {
       memberId
     });
     manager.complete();
+    await evidence?.record("run_completed", {
+      payload: {
+        sameSessionRetained: session.id === adapter.getSession().id,
+        finalAutomationResult: {
+          balance
+        }
+      }
+    });
 
     console.log(JSON.stringify(redactStructuredValue({
       status: "completed",
@@ -326,6 +400,88 @@ async function runHandoffCommand(args: string[]): Promise<void> {
       });
     });
   }
+}
+
+async function runEvidenceCommand(args: string[]): Promise<void> {
+  const options = parseArgs(args);
+  const basePort = Number(options.port ?? "3150");
+
+  await runDiscoverCommand([
+    "--scripted",
+    "--port",
+    String(basePort),
+    "--evidencePath",
+    "evidence/discovery-success/run.jsonl"
+  ]);
+  await runReplayCommand([
+    "--port",
+    String(basePort + 1),
+    "--memberId",
+    "54321",
+    "--evidencePath",
+    "evidence/replay-success/run.jsonl"
+  ]);
+  await runReplayCommand([
+    "--port",
+    String(basePort + 2),
+    "--memberId",
+    "00000",
+    "--evidencePath",
+    "evidence/replay-business-outcome/run.jsonl"
+  ]);
+  await runReplayCommand([
+    "--port",
+    String(basePort + 3),
+    "--memberId",
+    "54321",
+    "--scenario",
+    "interstitial",
+    "--evidencePath",
+    "evidence/replay-recovery/run.jsonl"
+  ]);
+  await runReplayCommand([
+    "--port",
+    String(basePort + 4),
+    "--memberId",
+    "88888",
+    "--evidencePath",
+    "evidence/replay-failure/run.jsonl"
+  ]);
+  await runHandoffCommand([
+    "--port",
+    String(basePort + 5),
+    "--memberId",
+    "54321",
+    "--evidencePath",
+    "evidence/human-handoff/run.jsonl"
+  ]);
+  await mkdir("evidence/artifacts", { recursive: true });
+  await copyFile("capabilities/member-get-savings-balance.v1.yaml", "evidence/artifacts/member-get-savings-balance.v1.yaml");
+
+  console.log(JSON.stringify({
+    status: "evidence_generated",
+    files: [
+      "evidence/discovery-success/run.jsonl",
+      "evidence/replay-success/run.jsonl",
+      "evidence/replay-business-outcome/run.jsonl",
+      "evidence/replay-recovery/run.jsonl",
+      "evidence/replay-failure/run.jsonl",
+      "evidence/human-handoff/run.jsonl",
+      "evidence/artifacts/member-get-savings-balance.v1.yaml"
+    ]
+  }, null, 2));
+}
+
+async function createJsonlRecorder(path: string, options: {
+  runId: string;
+  capabilityId: string;
+  sensitiveValues: string[];
+}): Promise<EvidenceRecorder> {
+  await resetJsonlEvidenceFile(path);
+  return new EvidenceRecorder({
+    ...options,
+    sink: new JsonlEvidenceSink(path)
+  });
 }
 
 function captureBlockedAutomation(manager: InterventionManager): string {

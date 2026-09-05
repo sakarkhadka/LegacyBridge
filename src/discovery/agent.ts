@@ -1,4 +1,5 @@
 import type { CapabilityArtifact, StepAction, TargetDescriptor } from "../artifact/types.js";
+import type { EvidenceRecorder } from "../evidence/recorder.js";
 import { policyConfigFromCapability } from "../policy/config.js";
 import { PolicyEngine, policyRequestForUrl } from "../policy/policy-engine.js";
 import { classifyStepRisk } from "../policy/risk-classifier.js";
@@ -16,6 +17,7 @@ export type DiscoveryAgentOptions = {
   policyCapability: CapabilityArtifact;
   maxSteps?: number;
   timeoutMs?: number;
+  evidence?: EvidenceRecorder;
 };
 
 export async function runDiscovery(options: DiscoveryAgentOptions): Promise<DiscoveryRunResult> {
@@ -26,6 +28,13 @@ export async function runDiscovery(options: DiscoveryAgentOptions): Promise<Disc
   let previousActionResult: unknown;
   let modelDecisionCalls = 0;
 
+  await options.evidence?.record("run_started", {
+    payload: {
+      mode: "discovery",
+      entrypoint: options.entrypoint,
+      maxSteps
+    }
+  });
   await options.surface.act({
     type: "navigate",
     value: options.entrypoint
@@ -41,6 +50,12 @@ export async function runDiscovery(options: DiscoveryAgentOptions): Promise<Disc
       type: "observation",
       stepNumber,
       observation
+    });
+    await options.evidence?.record("observation_captured", {
+      payload: {
+        stepNumber,
+        observation
+      }
     });
 
     const context = buildDiscoveryContext({
@@ -70,6 +85,12 @@ export async function runDiscovery(options: DiscoveryAgentOptions): Promise<Disc
       stepNumber,
       decision
     });
+    await options.evidence?.record("model_decision", {
+      payload: {
+        stepNumber,
+        decision
+      }
+    });
 
     if (decision.type === "goal_complete") {
       if (!goalCompletionIsVerified(decision, observation, previousActionResult)) {
@@ -79,9 +100,22 @@ export async function runDiscovery(options: DiscoveryAgentOptions): Promise<Disc
           stepNumber,
           result: previousActionResult
         });
+        await options.evidence?.record("run_failed", {
+          payload: {
+            stopReason: "execution_failed",
+            observed: previousActionResult
+          }
+        });
         return stopped("execution_failed", trace, modelDecisionCalls, stepNumber - 1);
       }
 
+      await options.evidence?.record("run_completed", {
+        payload: {
+          stopReason: "goal_completed",
+          outputs: decision.outputs,
+          modelDecisionCalls
+        }
+      });
       return {
         status: "success",
         stopReason: "goal_completed",
@@ -93,20 +127,46 @@ export async function runDiscovery(options: DiscoveryAgentOptions): Promise<Disc
     }
 
     if (decision.type === "dead_end") {
+      await options.evidence?.record("run_failed", {
+        payload: {
+          stopReason: "dead_end",
+          reason: decision.reason
+        }
+      });
       return stopped("dead_end", trace, modelDecisionCalls, stepNumber - 1);
     }
 
     if (decision.type === "intervention_required") {
+      await options.evidence?.record("run_failed", {
+        payload: {
+          stopReason: "intervention_required",
+          reason: decision.reason
+        }
+      });
       return stopped("intervention_required", trace, modelDecisionCalls, stepNumber - 1);
     }
 
     const policyFailure = policyFailureForDecision(decision, observation.url, options.policyCapability, policyEngine);
+    await options.evidence?.record("policy_checked", {
+      payload: {
+        stepNumber,
+        action: decision.action.type,
+        allowed: !policyFailure,
+        reason: policyFailure
+      }
+    });
     if (policyFailure) {
       previousActionResult = policyFailure;
       trace.push({
         type: "action_result",
         stepNumber,
         result: policyFailure
+      });
+      await options.evidence?.record("run_failed", {
+        payload: {
+          stopReason: "policy_blocked",
+          observed: policyFailure
+        }
       });
       return stopped("policy_blocked", trace, modelDecisionCalls, stepNumber - 1);
     }
@@ -118,12 +178,29 @@ export async function runDiscovery(options: DiscoveryAgentOptions): Promise<Disc
       stepNumber,
       result: actionResult
     });
+    await options.evidence?.record("action_completed", {
+      payload: {
+        stepNumber,
+        action: actionResult
+      }
+    });
 
     if (!actionResult.ok) {
+      await options.evidence?.record("run_failed", {
+        payload: {
+          stopReason: "execution_failed",
+          observed: actionResult
+        }
+      });
       return stopped("execution_failed", trace, modelDecisionCalls, stepNumber);
     }
   }
 
+  await options.evidence?.record("run_failed", {
+    payload: {
+      stopReason: "max_steps"
+    }
+  });
   return stopped("max_steps", trace, modelDecisionCalls, maxSteps);
 }
 
