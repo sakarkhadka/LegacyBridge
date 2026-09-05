@@ -9,7 +9,7 @@ Model discovers
   -> Human resolves uncertainty
 ```
 
-This repository is being built for the Computer-Use Automation System take-home project. The current state is Phase 11 implemented: capabilities can be stability-validated across repeated replay runs and production invocation is gated to approved or active artifacts. Implementation progress is tracked in [status.md](status.md).
+This repository is being built for the Computer-Use Automation System take-home project. The current state is Phase 12 implemented: a minimal agent-facing HTTP catalog exposes approved capabilities as public manifests and invokes them without exposing UI automation internals. Implementation progress is tracked in [status.md](status.md).
 
 ## Setup
 
@@ -24,6 +24,7 @@ npm test
 
 ```bash
 npm run demo-app
+npm run demo:catalog
 npm run demo:evidence
 npm run demo:compile
 npm run demo:discover
@@ -116,6 +117,14 @@ npm run validate-capability -- member.get-savings-balance --runs 5
 
 The validation command replays the capability multiple times, reports success/failure counts plus primary/fallback locator usage, and stores a `validation` block on the artifact. A fully successful run is marked `eligible-for-approval`, but the artifact is not automatically approved. Production catalog invocation rejects `draft` capabilities and allows only `approved` or `active` artifacts.
 
+Agent-facing catalog:
+
+```bash
+npm run demo:catalog
+```
+
+The catalog exposes `GET /capabilities` and `POST /capabilities/member.get-savings-balance/invoke`. The public manifest includes only the capability name, description, inputs, outputs, and risk. The caller sends business input such as `{ "memberId": "54321" }`; it does not need to know about Playwright, selectors, frames, pages, coordinates, or DOM structure. The demo promotes the validated artifact to `approved` in memory for the smoke run while leaving the checked-in YAML status unchanged.
+
 ## Safety
 
 Replay actions pass through a structural policy layer before reaching the surface adapter. The current policy checks:
@@ -184,4 +193,4 @@ npm test
 npm audit --omit=optional
 ```
 
-Phase 1 tests validate that a well-formed capability artifact is accepted, malformed contracts are rejected, business outcomes are distinct from execution failures, and target descriptors do not leak Playwright selectors into the artifact schema. Phase 2 tests validate the local legacy banking proxy app and its deterministic runtime scenarios. Phase 3 tests validate the Playwright-backed surface adapter using semantic `TargetDescriptor` inputs. Phase 4 tests validate deterministic replay from a YAML capability artifact with no model credentials or LLM decision calls. Phase 5 tests validate runtime classification and bounded recovery behavior. Phase 6 tests validate policy enforcement and sensitive-data redaction. Phase 7 tests validate the discovery loop, decision schema, policy-blocked model actions, and verified goal completion. Phase 8 tests validate compiling a successful discovery trace into a redacted draft YAML artifact, schema-validating that generated artifact, and replaying it against member `54321` with no LLM decisions. Phase 9 tests validate same-session handoff, explicit ownership transfer, blocked automation during human control, redacted human action evidence, operator status, and resume verification. Phase 10 tests validate redacted evidence recording and replay evidence for policy checks, target resolution, actual actions, checkpoint success, and zero LLM calls. Phase 11 tests validate multi-run stability reporting and the production catalog approval gate.
+Phase 1 tests validate that a well-formed capability artifact is accepted, malformed contracts are rejected, business outcomes are distinct from execution failures, and target descriptors do not leak Playwright selectors into the artifact schema. Phase 2 tests validate the local legacy banking proxy app and its deterministic runtime scenarios. Phase 3 tests validate the Playwright-backed surface adapter using semantic `TargetDescriptor` inputs. Phase 4 tests validate deterministic replay from a YAML capability artifact with no model credentials or LLM decision calls. Phase 5 tests validate runtime classification and bounded recovery behavior. Phase 6 tests validate policy enforcement and sensitive-data redaction. Phase 7 tests validate the discovery loop, decision schema, policy-blocked model actions, and verified goal completion. Phase 8 tests validate compiling a successful discovery trace into a redacted draft YAML artifact, schema-validating that generated artifact, and replaying it against member `54321` with no LLM decisions. Phase 9 tests validate same-session handoff, explicit ownership transfer, blocked automation during human control, redacted human action evidence, operator status, and resume verification. Phase 10 tests validate redacted evidence recording and replay evidence for policy checks, target resolution, actual actions, checkpoint success, and zero LLM calls. Phase 11 tests validate multi-run stability reporting and the production catalog approval gate. Phase 12 tests validate the agent-facing manifest, draft invocation blocking, and approved HTTP invocation without exposing UI internals.

@@ -3,6 +3,8 @@ import { copyFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createDemoAppServer } from "../../demo-app/server.js";
 import { loadCapabilityArtifact, loadCapabilityArtifactFromPath, saveCapabilityArtifact } from "../artifact/loader.js";
+import type { CapabilityArtifact } from "../artifact/types.js";
+import { createCapabilityCatalogServer } from "../catalog/catalog-server.js";
 import { validateCapabilityStability } from "../catalog/validation.js";
 import { runDiscovery } from "../discovery/agent.js";
 import { compileDiscoveryToArtifact } from "../discovery/artifact-compiler.js";
@@ -21,6 +23,7 @@ const command = process.argv[2] ?? "help";
 
 const knownCommands = new Set([
   "compile-discovery",
+  "catalog",
   "discover",
   "evidence",
   "replay",
@@ -46,6 +49,8 @@ if (!knownCommands.has(command)) {
   await runEvidenceCommand(process.argv.slice(3));
 } else if (command === "validate-capability") {
   await runValidateCapabilityCommand(process.argv.slice(3));
+} else if (command === "catalog") {
+  await runCatalogCommand(process.argv.slice(3));
 } else {
   console.log(`LegacyBridge command scaffold: ${command}`);
   console.log("Implementation pending. See status.md for current progress.");
@@ -53,7 +58,7 @@ if (!knownCommands.has(command)) {
 
 function printHelp(): void {
   console.log("LegacyBridge CLI");
-  console.log("Commands: compile-discovery, discover, evidence, replay, handoff, validate-capability");
+  console.log("Commands: catalog, compile-discovery, discover, evidence, replay, handoff, validate-capability");
   console.log("");
   console.log("Replay example:");
   console.log("  npm run replay -- --capability member.get-savings-balance --memberId 54321");
@@ -71,6 +76,9 @@ function printHelp(): void {
   console.log("");
   console.log("Validation example:");
   console.log("  npm run validate-capability -- member.get-savings-balance --runs 5");
+  console.log("");
+  console.log("Catalog example:");
+  console.log("  npm run demo:catalog");
 }
 
 async function runDiscoverCommand(args: string[]): Promise<void> {
@@ -538,6 +546,82 @@ async function runValidateCapabilityCommand(args: string[]): Promise<void> {
       });
     });
   }
+}
+
+async function runCatalogCommand(args: string[]): Promise<void> {
+  const options = parseArgs(args);
+  const demoPort = Number(options.demoPort ?? "3107");
+  const catalogPort = options.catalogPort ? Number(options.catalogPort) : undefined;
+  const memberId = options.memberId ?? "54321";
+  const origin = `http://127.0.0.1:${demoPort}`;
+  const demoServer = createDemoAppServer();
+
+  await new Promise<void>((resolve) => {
+    demoServer.listen(demoPort, "127.0.0.1", resolve);
+  });
+
+  const loaded = await loadCapabilityArtifact("member.get-savings-balance");
+  const capability = options.approved === "false" ? loaded : withCapabilityStatus(loaded, "approved");
+  const catalog = await createCapabilityCatalogServer({
+    capabilities: [capability],
+    replayOrigin: origin,
+    port: catalogPort
+  });
+
+  try {
+    if (options.smoke !== "false") {
+      const capabilities = await fetchJson(`${catalog.url}/capabilities`);
+      const invocation = await fetchJson(`${catalog.url}/capabilities/member.get-savings-balance/invoke`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          memberId
+        })
+      });
+      console.log(JSON.stringify(redactStructuredValue({
+        status: "catalog_smoke_completed",
+        catalogUrl: catalog.url,
+        capabilities,
+        invocation
+      }, [memberId]), null, 2));
+      return;
+    }
+
+    console.log(`Capability catalog listening at ${catalog.url}`);
+    console.log("Press Ctrl+C to stop.");
+    await new Promise<void>(() => undefined);
+  } finally {
+    await catalog.close();
+    await new Promise<void>((resolve, reject) => {
+      demoServer.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+}
+
+function withCapabilityStatus(
+  capability: CapabilityArtifact,
+  status: CapabilityArtifact["capability"]["status"]
+): CapabilityArtifact {
+  return {
+    ...structuredClone(capability),
+    capability: {
+      ...capability.capability,
+      status
+    }
+  };
+}
+
+async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
+  const response = await fetch(url, init);
+  return response.json();
 }
 
 function defaultCapabilityPath(capabilityId: string): string {
