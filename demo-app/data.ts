@@ -7,7 +7,17 @@ export type Member = {
     type: "Savings" | "Checking" | "Money Market";
     number: string;
     balance: string;
+    history: AccountTransaction[];
   }>;
+};
+
+export type AccountTransaction = {
+  datetime: string;
+  accountNumber: string;
+  accountType: "Savings" | "Checking" | "Money Market";
+  type: "Deposit" | "Withdraw";
+  amount: string;
+  balance: string;
 };
 
 export const members: Record<string, Member> = {
@@ -20,12 +30,48 @@ export const members: Record<string, Member> = {
       {
         type: "Savings",
         number: "S-100234",
-        balance: "$3,182.46"
+        balance: "$3,182.46",
+        history: [
+          {
+            datetime: "2026-09-05T14:18:00",
+            accountNumber: "S-100234",
+            accountType: "Savings",
+            type: "Deposit",
+            amount: "+$125.00",
+            balance: "$3,182.46"
+          },
+          {
+            datetime: "2026-09-04T09:11:00",
+            accountNumber: "S-100234",
+            accountType: "Savings",
+            type: "Withdraw",
+            amount: "-$40.00",
+            balance: "$3,057.46"
+          }
+        ]
       },
       {
         type: "Checking",
         number: "C-442910",
-        balance: "$842.10"
+        balance: "$842.10",
+        history: [
+          {
+            datetime: "2026-09-05T16:42:00",
+            accountNumber: "C-442910",
+            accountType: "Checking",
+            type: "Withdraw",
+            amount: "-$63.25",
+            balance: "$842.10"
+          },
+          {
+            datetime: "2026-09-03T08:30:00",
+            accountNumber: "C-442910",
+            accountType: "Checking",
+            type: "Deposit",
+            amount: "+$950.00",
+            balance: "$905.35"
+          }
+        ]
       }
     ]
   },
@@ -38,12 +84,32 @@ export const members: Record<string, Member> = {
       {
         type: "Savings",
         number: "S-889120",
-        balance: "$8,044.19"
+        balance: "$8,044.19",
+        history: [
+          {
+            datetime: "2026-09-05T13:05:00",
+            accountNumber: "S-889120",
+            accountType: "Savings",
+            type: "Deposit",
+            amount: "+$500.00",
+            balance: "$8,044.19"
+          }
+        ]
       },
       {
         type: "Checking",
         number: "C-119004",
-        balance: "$12,000.00"
+        balance: "$12,000.00",
+        history: [
+          {
+            datetime: "2026-09-05T10:15:00",
+            accountNumber: "C-119004",
+            accountType: "Checking",
+            type: "Deposit",
+            amount: "+$2,000.00",
+            balance: "$12,000.00"
+          }
+        ]
       }
     ]
   },

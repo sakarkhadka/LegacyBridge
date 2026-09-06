@@ -61,7 +61,8 @@ const locatorStrategySchema: z.ZodTypeAny = z.lazy(() =>
       description: z.string().min(1),
       containerText: z.string().min(1).optional(),
       rowText: z.string().min(1).optional(),
-      columnText: z.string().min(1).optional()
+      columnText: z.string().min(1).optional(),
+      controlText: z.string().min(1).optional()
     }),
     z.object({
       strategy: z.literal("frame"),
@@ -175,6 +176,7 @@ const capabilityStepSchema = z.object({
   action: z.enum(stepActions),
   target: targetDescriptorSchema.optional(),
   value: valueSourceSchema.optional(),
+  risk: z.enum(["READ_ONLY", "REVERSIBLE_WRITE", "IRREVERSIBLE_WRITE"]).optional(),
   wait: waitDefinitionSchema.optional(),
   precondition: z.array(conditionDefinitionSchema).optional(),
   postcondition: z.array(conditionDefinitionSchema).optional(),

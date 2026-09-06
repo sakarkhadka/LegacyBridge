@@ -122,7 +122,7 @@ describe("artifact compiler", () => {
           type: "goal_complete",
           reason: "The account balances were extracted.",
           outputs: {
-            accountBalances: "Account Type\tAccount Number\tBalance\tAction\nSavings\tS-100234\t$3,182.46\tDetails\nChecking\tC-442910\t$842.10\tDetails"
+            accountBalances: "Account Type\tAccount Number\tBalance\tActions\nSavings\tS-100234\t$3,182.46\tDeposit Withdraw Transactions\nChecking\tC-442910\t$842.10\tDeposit Withdraw Transactions"
           }
         }
       ]),

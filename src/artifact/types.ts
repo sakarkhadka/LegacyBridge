@@ -10,7 +10,7 @@ export const capabilityStatuses = [
 
 export type CapabilityStatus = (typeof capabilityStatuses)[number];
 
-export const valueTypes = ["string", "number", "boolean", "money", "enum", "accountBalances"] as const;
+export const valueTypes = ["string", "number", "boolean", "money", "enum", "accountBalances", "transactionHistory"] as const;
 
 export type ValueType = (typeof valueTypes)[number];
 
@@ -21,6 +21,15 @@ export type MoneyValue = {
 
 export type AccountBalanceValue = {
   accountType: string;
+  balance: MoneyValue;
+};
+
+export type TransactionHistoryValue = {
+  datetime: string;
+  accountNumber: string;
+  accountType: string;
+  type: "Deposit" | "Withdraw";
+  amount: MoneyValue;
   balance: MoneyValue;
 };
 
@@ -97,6 +106,7 @@ export type StructuralLocator = {
   containerText?: string;
   rowText?: string;
   columnText?: string;
+  controlText?: string;
 };
 
 export type FrameLocator = {
@@ -167,6 +177,7 @@ export type CapabilityStep = {
   action: StepAction;
   target?: TargetDescriptor;
   value?: ValueSource;
+  risk?: "READ_ONLY" | "REVERSIBLE_WRITE" | "IRREVERSIBLE_WRITE";
   wait?: WaitDefinition;
   precondition?: ConditionDefinition[];
   postcondition?: ConditionDefinition[];

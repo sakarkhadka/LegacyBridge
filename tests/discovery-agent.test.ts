@@ -122,7 +122,7 @@ describe("discovery agent", () => {
         type: "goal_complete",
         reason: "The account balances were extracted.",
         outputs: {
-          accountBalances: "Account Type\tAccount Number\tBalance\tAction\nSavings\tS-100234\t$3,182.46\tDetails\nChecking\tC-442910\t$842.10\tDetails"
+          accountBalances: "Account Type\tAccount Number\tBalance\tActions\nSavings\tS-100234\t$3,182.46\tDeposit Withdraw Transactions\nChecking\tC-442910\t$842.10\tDeposit Withdraw Transactions"
         }
       }
     ]);
@@ -139,7 +139,7 @@ describe("discovery agent", () => {
     expect(result.status).toBe("success");
     expect(result.stopReason).toBe("goal_completed");
     expect(result.modelDecisionCalls).toBe(4);
-    expect(result.outputs.accountBalances).toBe("Account Type\tAccount Number\tBalance\tAction\nSavings\tS-100234\t$3,182.46\tDetails\nChecking\tC-442910\t$842.10\tDetails");
+    expect(result.outputs.accountBalances).toBe("Account Type\tAccount Number\tBalance\tActions\nSavings\tS-100234\t$3,182.46\tDeposit Withdraw Transactions\nChecking\tC-442910\t$842.10\tDeposit Withdraw Transactions");
     expect(result.trace.some((event) => event.type === "observation")).toBe(true);
     expect(result.trace.some((event) => event.type === "model_decision")).toBe(true);
     expect(result.trace.some((event) => event.type === "action_result")).toBe(true);
@@ -179,7 +179,7 @@ describe("discovery agent", () => {
         type: "goal_complete",
         reason: "Claimed too early.",
         outputs: {
-          accountBalances: "Account Type\tAccount Number\tBalance\tAction\nSavings\tS-100234\t$3,182.46\tDetails\nChecking\tC-442910\t$842.10\tDetails"
+          accountBalances: "Account Type\tAccount Number\tBalance\tActions\nSavings\tS-100234\t$3,182.46\tDeposit Withdraw Transactions\nChecking\tC-442910\t$842.10\tDeposit Withdraw Transactions"
         }
       }
     ]);

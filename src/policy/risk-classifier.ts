@@ -2,8 +2,8 @@ import type { CapabilityStep } from "../artifact/types.js";
 import type { RiskClassification } from "./types.js";
 
 export function classifyStepRisk(step: CapabilityStep, capabilityRisk: RiskClassification): RiskClassification {
-  if (capabilityRisk === "IRREVERSIBLE_WRITE") {
-    return "IRREVERSIBLE_WRITE";
+  if (step.risk) {
+    return step.risk;
   }
 
   if (step.action === "extract" || step.action === "wait" || step.action === "navigate") {
@@ -16,4 +16,3 @@ export function classifyStepRisk(step: CapabilityStep, capabilityRisk: RiskClass
 
   return capabilityRisk;
 }
-

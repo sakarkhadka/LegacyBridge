@@ -1,0 +1,128 @@
+schemaVersion: "1.0"
+capability:
+  id: member.get-transaction-history
+  version: 1.0.0
+  name: Get transaction history
+  description: Look up the ten most recent transactions for a selected synthetic member account number.
+  status: draft
+targetApplication:
+  vendor: heritage-core
+  application: Heritage Core Servicing
+  supportedVersions:
+    - demo
+  fingerprint:
+    titlePatterns:
+      - Heritage Core Servicing
+    routePatterns:
+      - /servicing/*
+    landmarks:
+      - Member Search
+      - Accounts
+inputs:
+  memberId:
+    type: string
+    required: true
+    sensitive: true
+    description: Synthetic member number.
+    pattern: ^[0-9]{5}$
+  accountNumber:
+    type: string
+    required: true
+    sensitive: true
+    description: Exact account number whose transactions should be returned.
+    pattern: ^[A-Z]-[0-9]{6}$
+outputs:
+  transactions:
+    type: transactionHistory
+    required: true
+    description: Up to ten most recent transactions for the requested account.
+outcomes:
+  - code: MEMBER_NOT_FOUND
+    description: No member exists for the supplied member number.
+    when:
+      - type: text_present
+        value: Member not found
+  - code: ACCOUNT_NOT_FOUND
+    description: The requested account number does not exist for the member.
+    when:
+      - type: text_present
+        value: Account not found
+steps:
+  - id: navigate-to-search
+    action: navigate
+    value:
+      literal: "{{origin}}/servicing/search{{scenarioQuery}}"
+    wait:
+      type: navigation
+      timeoutMs: 5000
+    postcondition:
+      - type: text_present
+        value: Member Search
+  - id: enter-member-id
+    action: fill
+    target:
+      description: Member Number input
+      primary:
+        strategy: label
+        text: Member Number
+      fallbacks:
+        - strategy: accessible
+          role: textbox
+          name: Member Number
+    value:
+      parameter: memberId
+  - id: search-member
+    action: click
+    target:
+      description: Search button in the member search form
+      primary:
+        strategy: relative
+        anchorText: Member Number
+        direction: below
+        controlType: submit button
+    wait:
+      type: text
+      text: Accounts
+      timeoutMs: 5000
+  - id: open-transaction-history
+    action: click
+    target:
+      description: Transactions action in the requested account row
+      primary:
+        strategy: structural
+        description: Accounts table row action for the requested account number
+        rowText: "{{accountNumber}}"
+        controlText: Transactions
+    wait:
+      type: text
+      text: Most Recent 10 Transactions
+      timeoutMs: 5000
+  - id: extract-transactions
+    action: extract
+    target:
+      description: Most recent transactions table
+      primary:
+        strategy: structural
+        description: Full transactions table containing Date/Time, Account Number, Account Type, Type, Amount, and Balance columns
+        columnText: Balance
+    output:
+      name: transactions
+      parseAs: transactionHistory
+checkpoint:
+  description: Transaction history was extracted from the account transaction table.
+  conditions:
+    - type: output_present
+      output: transactions
+policy:
+  allowedOrigins:
+    - "{{origin}}"
+    - http://localhost:3000
+  allowedRoutes:
+    - /servicing/*
+  allowedActions:
+    - navigate
+    - click
+    - fill
+    - extract
+    - wait
+  risk: READ_ONLY

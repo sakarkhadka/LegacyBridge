@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { URL } from "node:url";
-import type { Member } from "./data.js";
+import type { AccountTransaction, Member } from "./data.js";
 import { loadPersistentState, savePersistentState, seededState } from "./state-store.js";
 
 const defaultPort = Number(process.env.PORT ?? 3000);
@@ -83,6 +83,30 @@ function routeRequest(_request: IncomingMessage, response: ServerResponse, conte
   const accountsFrameMatch = pathname.match(/^\/servicing\/member\/([^/]+)\/accounts-frame$/);
   if (accountsFrameMatch) {
     sendAccountsFrame(response, decodeURIComponent(accountsFrameMatch[1] ?? ""), context);
+    return;
+  }
+
+  const accountTransactionsMatch = pathname.match(/^\/servicing\/member\/([^/]+)\/account-transactions$/);
+  if (accountTransactionsMatch) {
+    sendAccountTransactions(response, decodeURIComponent(accountTransactionsMatch[1] ?? ""), context);
+    return;
+  }
+
+  const accountTransactionMatch = pathname.match(/^\/servicing\/member\/([^/]+)\/account-transaction$/);
+  if (accountTransactionMatch) {
+    sendAccountTransactionForm(response, decodeURIComponent(accountTransactionMatch[1] ?? ""), context);
+    return;
+  }
+
+  const accountTransactionReviewMatch = pathname.match(/^\/servicing\/member\/([^/]+)\/account-transaction-review$/);
+  if (accountTransactionReviewMatch) {
+    sendAccountTransactionReview(response, decodeURIComponent(accountTransactionReviewMatch[1] ?? ""), context);
+    return;
+  }
+
+  const accountTransactionConfirmationMatch = pathname.match(/^\/servicing\/member\/([^/]+)\/account-transaction-confirmed$/);
+  if (accountTransactionConfirmationMatch) {
+    sendAccountTransactionConfirmation(response, decodeURIComponent(accountTransactionConfirmationMatch[1] ?? ""), context);
     return;
   }
 
@@ -193,13 +217,20 @@ function sendAccountsFrame(response: ServerResponse, memberId: string, context: 
 
   const rows = member.accounts
     .map(
-      (account) => `
+      (account) => {
+        const query = accountQuery(account.number, context);
+        return `
         <tr>
           <td>${escapeHtml(account.type)}</td>
           <td>${escapeHtml(account.number)}</td>
           <td class="amount">${escapeHtml(account.balance)}</td>
-          <td><button>Details</button></td>
-        </tr>`
+          <td>
+            <a class="host-button" target="_top" href="/servicing/member/${encodeURIComponent(member.id)}/account-transaction?operation=deposit&${query}">Deposit</a>
+            <a class="host-button" target="_top" href="/servicing/member/${encodeURIComponent(member.id)}/account-transaction?operation=withdraw&${query}">Withdraw</a>
+            <a class="host-button" target="_top" href="/servicing/member/${encodeURIComponent(member.id)}/account-transactions?${query}">Transactions</a>
+          </td>
+        </tr>`;
+      }
     )
     .join("");
 
@@ -208,10 +239,201 @@ function sendAccountsFrame(response: ServerResponse, memberId: string, context: 
     200,
     frameLayout(`
       <table class="accounts-table">
-        <tr><th>Account Type</th><th>Account Number</th><th>Balance</th><th>Action</th></tr>
+        <tr><th>Account Type</th><th>Account Number</th><th>Balance</th><th>Actions</th></tr>
         ${rows}
       </table>
     `)
+  );
+}
+
+function sendAccountTransactions(response: ServerResponse, memberId: string, context: RequestContext): void {
+  const member = context.members[memberId];
+  if (!member || member.status !== "active") {
+    sendHtml(response, 404, layout("Transactions", memberNotFoundPage(memberId), noticeOptions(context)));
+    return;
+  }
+
+  const account = findAccountByNumber(member, context.url.searchParams.get("accountNumber"));
+  if (!account) {
+    sendHtml(response, 200, layout("Transactions", businessMessagePage("Account not found", `No account exists for member ${member.id} with the supplied account number.`), noticeOptions(context)));
+    return;
+  }
+
+  const rows = recentTransactions(account)
+    .map((transaction) => `
+      <tr>
+        <td>${escapeHtml(transaction.datetime)}</td>
+        <td>${escapeHtml(transaction.accountNumber)}</td>
+        <td>${escapeHtml(transaction.accountType)}</td>
+        <td>${escapeHtml(transaction.type)}</td>
+        <td class="amount">${escapeHtml(transaction.amount)}</td>
+        <td class="amount">${escapeHtml(transaction.balance)}</td>
+      </tr>`
+    )
+    .join("");
+
+  sendHtml(
+    response,
+    200,
+    layout(
+      "Heritage Core Servicing - Transactions",
+      `
+        <h2>Transactions</h2>
+        <p>Member ${escapeHtml(member.id)} - ${escapeHtml(member.name)}</p>
+        <table class="layout-table">
+          <tr><td class="label-cell">Account Type</td><td>${escapeHtml(account.type)}</td></tr>
+          <tr><td class="label-cell">Account Number</td><td>${escapeHtml(account.number)}</td></tr>
+          <tr><td class="label-cell">Current Balance</td><td>${escapeHtml(account.balance)}</td></tr>
+        </table>
+        <h3>Most Recent 10 Transactions</h3>
+        <table class="accounts-table">
+          <tr><th>Date/Time</th><th>Account Number</th><th>Account Type</th><th>Type</th><th>Amount</th><th>Balance</th></tr>
+          ${rows || `<tr><td colspan="6">No transactions found</td></tr>`}
+        </table>
+        <a class="host-button" href="${withScenario(`/servicing/member/${member.id}`, context)}">Return to Member Details</a>
+      `,
+      noticeOptions(context)
+    )
+  );
+}
+
+function sendAccountTransactionForm(response: ServerResponse, memberId: string, context: RequestContext): void {
+  const member = context.members[memberId];
+  if (!member || member.status !== "active") {
+    sendHtml(response, 404, layout("Account Transaction", memberNotFoundPage(memberId), noticeOptions(context)));
+    return;
+  }
+
+  const operation = normalizeOperation(context.url.searchParams.get("operation"));
+  const account = findAccountByNumber(member, context.url.searchParams.get("accountNumber"));
+  if (!account) {
+    sendHtml(response, 200, layout("Account Transaction", businessMessagePage("Account not found", `No account exists for member ${member.id} with the supplied account number.`), noticeOptions(context)));
+    return;
+  }
+
+  const amountId = generatedHostId("amount", context);
+  const memoId = generatedHostId("memo", context);
+  const title = operation === "deposit" ? "Deposit Funds" : "Withdraw Funds";
+
+  sendHtml(
+    response,
+    200,
+    layout(
+      `Heritage Core Servicing - ${title}`,
+      `
+        <h2>${title}</h2>
+        <p>Member ${escapeHtml(member.id)} - ${escapeHtml(member.name)}</p>
+        <form action="/servicing/member/${encodeURIComponent(member.id)}/account-transaction-review" method="get">
+          ${hiddenScenarioInput(context)}
+          <input type="hidden" name="operation" value="${operation}" />
+          <input type="hidden" name="accountNumber" value="${escapeAttribute(account.number)}" />
+          <table class="layout-table">
+            <tr><td class="label-cell">Account Type</td><td>${escapeHtml(account.type)}</td></tr>
+            <tr><td class="label-cell">Account Number</td><td>${escapeHtml(account.number)}</td></tr>
+            <tr><td class="label-cell">Current Balance</td><td>${escapeHtml(account.balance)}</td></tr>
+            <tr>
+              <td><label for="${amountId}">Amount</label></td>
+              <td><input id="${amountId}" name="amount" autocomplete="off" value="25.00" /></td>
+            </tr>
+            <tr>
+              <td><label for="${memoId}">Memo</label></td>
+              <td><input id="${memoId}" name="memo" value="${operation === "deposit" ? "Counter deposit" : "Counter withdrawal"}" /></td>
+            </tr>
+          </table>
+          <div class="button-row">
+            <button type="submit">Continue</button>
+            <a class="host-button" href="${withScenario(`/servicing/member/${member.id}`, context)}">Cancel</a>
+          </div>
+        </form>
+      `,
+      noticeOptions(context)
+    )
+  );
+}
+
+function sendAccountTransactionReview(response: ServerResponse, memberId: string, context: RequestContext): void {
+  const transaction = resolveTransaction(memberId, context);
+  if (!transaction.ok) {
+    sendHtml(response, 200, layout("Transaction Review", businessMessagePage(transaction.title, transaction.message), noticeOptions(context)));
+    return;
+  }
+
+  const { account, amount, member, operation } = transaction;
+  const currentBalance = parseMoney(account.balance);
+  const projectedBalance = operation === "deposit" ? currentBalance + amount : currentBalance - amount;
+  const title = operation === "deposit" ? "Deposit Review" : "Withdrawal Review";
+
+  sendHtml(
+    response,
+    200,
+    layout(
+      `Heritage Core Servicing - ${title}`,
+      `
+        <h2>${title}</h2>
+        <div class="warning">Confirm ${operation === "deposit" ? "Deposit" : "Withdrawal"} changes persisted account data and requires human approval in automation.</div>
+        <table class="layout-table">
+          <tr><td class="label-cell">Member</td><td>${escapeHtml(member.id)} - ${escapeHtml(member.name)}</td></tr>
+          <tr><td class="label-cell">Account Type</td><td>${escapeHtml(account.type)}</td></tr>
+          <tr><td class="label-cell">Account Number</td><td>${escapeHtml(account.number)}</td></tr>
+          <tr><td class="label-cell">Current Balance</td><td>${escapeHtml(account.balance)}</td></tr>
+          <tr><td class="label-cell">Amount</td><td>${escapeHtml(formatMoney(amount))}</td></tr>
+          <tr><td class="label-cell">Projected Balance</td><td>${escapeHtml(formatMoney(projectedBalance))}</td></tr>
+        </table>
+        <form action="/servicing/member/${encodeURIComponent(member.id)}/account-transaction-confirmed" method="get">
+          ${hiddenScenarioInput(context)}
+          <input type="hidden" name="operation" value="${operation}" />
+          <input type="hidden" name="accountNumber" value="${escapeAttribute(account.number)}" />
+          <input type="hidden" name="amount" value="${escapeAttribute(amount.toFixed(2))}" />
+          <input type="hidden" name="memo" value="${escapeAttribute(context.url.searchParams.get("memo") ?? "")}" />
+          <button type="submit">Confirm ${operation === "deposit" ? "Deposit" : "Withdrawal"}</button>
+          <a class="host-button" href="${withScenario(`/servicing/member/${member.id}`, context)}">Cancel</a>
+        </form>
+      `,
+      noticeOptions(context)
+    )
+  );
+}
+
+function sendAccountTransactionConfirmation(response: ServerResponse, memberId: string, context: RequestContext): void {
+  const transaction = resolveTransaction(memberId, context);
+  if (!transaction.ok) {
+    sendHtml(response, 200, layout("Transaction Confirmation", businessMessagePage(transaction.title, transaction.message), noticeOptions(context)));
+    return;
+  }
+
+  const { account, amount, member, operation } = transaction;
+  const previousBalance = parseMoney(account.balance);
+  const newBalance = operation === "deposit" ? previousBalance + amount : previousBalance - amount;
+  account.balance = formatMoney(newBalance);
+  account.history.unshift(transactionEntry({
+    account,
+    amount,
+    balance: account.balance,
+    operation
+  }));
+  context.persistState();
+
+  const title = operation === "deposit" ? "Deposit Confirmation" : "Withdrawal Confirmation";
+  sendHtml(
+    response,
+    200,
+    layout(
+      `Heritage Core Servicing - ${title}`,
+      `
+        <h2>${title}</h2>
+        <p>${operation === "deposit" ? "Deposit" : "Withdrawal"} completed for member ${escapeHtml(member.id)}.</p>
+        <table class="layout-table">
+          <tr><th>Field</th><th>Value</th></tr>
+          <tr><td class="label-cell">Account Type</td><td>${escapeHtml(account.type)}</td></tr>
+          <tr><td class="label-cell">Previous Balance</td><td>${escapeHtml(formatMoney(previousBalance))}</td></tr>
+          <tr><td class="label-cell">Amount</td><td>${escapeHtml(formatMoney(amount))}</td></tr>
+          <tr><td class="label-cell">New Balance</td><td>${escapeHtml(account.balance)}</td></tr>
+          <tr><td class="label-cell">Reference Number</td><td>HC-${escapeHtml(member.id)}-${operation === "deposit" ? "DEP" : "WDR"}-20260906</td></tr>
+        </table>
+        <a class="host-button" href="${withScenario(`/servicing/member/${member.id}`, context)}">Return to Member Details</a>
+      `,
+      noticeOptions(context)
+    )
   );
 }
 
@@ -332,10 +554,156 @@ function createSubAccount(member: Member, accountType: string): Member["accounts
   const account = {
     type: normalizedType,
     number: `${prefix}-${member.id.slice(0, 4)}${nextOrdinal.toString().padStart(2, "0")}`,
-    balance: "$0.00"
+    balance: "$0.00",
+    history: [
+      {
+        datetime: transactionTimestamp(),
+        accountNumber: `${prefix}-${member.id.slice(0, 4)}${nextOrdinal.toString().padStart(2, "0")}`,
+        accountType: normalizedType,
+        type: "Deposit" as const,
+        amount: "+$0.00",
+        balance: "$0.00"
+      }
+    ]
   };
   member.accounts.push(account);
   return account;
+}
+
+type AccountOperation = "deposit" | "withdraw";
+
+type ResolvedTransaction =
+  | {
+    ok: true;
+    member: Member;
+    account: Member["accounts"][number];
+    operation: AccountOperation;
+    amount: number;
+  }
+  | {
+    ok: false;
+    title: string;
+    message: string;
+  };
+
+function resolveTransaction(memberId: string, context: RequestContext): ResolvedTransaction {
+  const member = context.members[memberId];
+  if (!member || member.status !== "active") {
+    return {
+      ok: false,
+      title: "Member not found",
+      message: `No active member record exists for member number ${memberId || "(blank)"}.`
+    };
+  }
+
+  const accountNumber = context.url.searchParams.get("accountNumber");
+  const account = findAccountByNumber(member, accountNumber);
+  if (!account) {
+    return {
+      ok: false,
+      title: "Account not found",
+      message: `No account exists for member ${member.id} with the supplied account number.`
+    };
+  }
+
+  const amount = parseTransactionAmount(context.url.searchParams.get("amount"));
+  if (amount === undefined) {
+    return {
+      ok: false,
+      title: "Invalid amount",
+      message: "Enter a positive dollar amount with no more than two decimal places."
+    };
+  }
+
+  const operation = normalizeOperation(context.url.searchParams.get("operation"));
+  if (operation === "withdraw" && amount > parseMoney(account.balance)) {
+    return {
+      ok: false,
+      title: "Insufficient funds",
+      message: `The ${account.type} account balance is ${account.balance}, which is less than the requested ${formatMoney(amount)} withdrawal.`
+    };
+  }
+
+  return {
+    ok: true,
+    member,
+    account,
+    operation,
+    amount
+  };
+}
+
+function findAccountByNumber(member: Member, accountNumber: string | null): Member["accounts"][number] | undefined {
+  return member.accounts.find((account) => account.number === accountNumber);
+}
+
+function normalizeOperation(value: string | null): AccountOperation {
+  return value === "withdraw" ? "withdraw" : "deposit";
+}
+
+function accountQuery(accountNumber: string, context: RequestContext): string {
+  const params = new URLSearchParams({
+    accountNumber
+  });
+  if (context.scenario) {
+    params.set("scenario", context.scenario);
+  }
+  return params.toString();
+}
+
+function parseTransactionAmount(value: string | null): number | undefined {
+  if (!value || !/^[0-9]+(?:\.[0-9]{1,2})?$/.test(value.trim())) {
+    return undefined;
+  }
+  const amount = Number(value);
+  return amount > 0 ? amount : undefined;
+}
+
+function parseMoney(value: string): number {
+  return Number(value.replace(/[$,]/g, ""));
+}
+
+function formatMoney(value: number): string {
+  return `$${value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })}`;
+}
+
+function recentTransactions(account: Member["accounts"][number]): AccountTransaction[] {
+  return [...account.history]
+    .sort((a, b) => b.datetime.localeCompare(a.datetime))
+    .slice(0, 10);
+}
+
+function transactionEntry(options: {
+  account: Member["accounts"][number];
+  operation: AccountOperation;
+  amount: number;
+  balance: string;
+}): AccountTransaction {
+  const signedAmount = `${options.operation === "deposit" ? "+" : "-"}${formatMoney(options.amount)}`;
+  return {
+    datetime: transactionTimestamp(),
+    accountNumber: options.account.number,
+    accountType: options.account.type,
+    type: options.operation === "deposit" ? "Deposit" : "Withdraw",
+    amount: signedAmount,
+    balance: options.balance
+  };
+}
+
+function transactionTimestamp(date = new Date()): string {
+  return date.toISOString().slice(0, 19);
+}
+
+function businessMessagePage(title: string, message: string): string {
+  return `
+    <h2>${escapeHtml(title)}</h2>
+    <div class="host-message">${escapeHtml(title)}</div>
+    <p>${escapeHtml(message)}</p>
+    <a class="host-button" href="/servicing/search">Back to Search</a>
+  `;
 }
 
 function memberNotFoundPage(memberId: string): string {
@@ -437,7 +805,7 @@ function frameLayout(body: string): string {
     td, th { border: 1px solid #999; padding: 6px; }
     th { background: #e1e7ef; }
     .amount { text-align: right; font-family: "Courier New", monospace; }
-    button { font: inherit; }
+    button, .host-button { display: inline-block; font: inherit; color: #111; background: #efefef; border: 1px solid #555; padding: 3px 7px; text-decoration: none; margin-right: 4px; }
   </style>
 </head>
 <body>${body}</body>

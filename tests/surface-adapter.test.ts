@@ -123,7 +123,24 @@ describe("Playwright surface adapter", () => {
     expect(balancesTable.fallbackUsed).toBe(false);
     expect(extraction).toEqual({
       ok: true,
-      observed: "Account Type\tAccount Number\tBalance\tAction\nSavings\tS-100234\t$3,182.46\tDetails\nChecking\tC-442910\t$842.10\tDetails"
+      observed: expect.stringContaining("Account Type\tAccount Number\tBalance\tActions\nSavings\tS-100234\t$3,182.46\tDeposit Withdraw Transactions")
     });
+  });
+
+  it("locates an action inside a specific account table row", async () => {
+    await adapter.act({ type: "navigate", value: `${baseUrl}/servicing/member/12345` });
+
+    const depositTarget = await adapter.locate({
+      description: "Deposit action in the Savings account row",
+      primary: {
+        strategy: "structural",
+        description: "Accounts table row action for Savings",
+        rowText: "S-100234",
+        controlText: "Deposit"
+      }
+    });
+
+    expect(depositTarget.strategyUsed).toBe("structural");
+    expect(depositTarget.matchCount).toBe(1);
   });
 });

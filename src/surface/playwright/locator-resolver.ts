@@ -239,6 +239,9 @@ async function structuralCandidateInFrame(frame: Frame, strategy: StructuralLoca
     }
 
     if (!strategy.rowText && !effectiveColumnText) {
+      if (strategy.controlText) {
+        return fromFrameLocator(table.locator(controlLocatorFor("button")).filter({ hasText: strategy.controlText }), "structural", 0.82);
+      }
       return {
         locator: table,
         matchCount: 1,
@@ -270,6 +273,16 @@ async function structuralCandidateInFrame(frame: Frame, strategy: StructuralLoca
       const rowText = await row.innerText();
       if (strategy.rowText && !rowText.includes(strategy.rowText)) {
         continue;
+      }
+      if (strategy.controlText) {
+        const control = row.locator(controlLocatorFor("button")).filter({ hasText: strategy.controlText });
+        const controlCount = await control.count();
+        return {
+          locator: control.first(),
+          matchCount: controlCount,
+          strategyUsed: "structural",
+          confidence: controlCount === 1 ? 0.82 : 0.42
+        };
       }
       const cells = row.locator("td,th");
       const cellCount = await cells.count();

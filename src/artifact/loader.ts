@@ -6,7 +6,10 @@ import type { CapabilityArtifact } from "./types.js";
 
 const capabilityFiles: Record<string, string> = {
   "member.get-account-balances": "member-get-account-balances.v1.yaml",
-  "member.get-savings-balance": "member-get-account-balances.v1.yaml"
+  "member.get-savings-balance": "member-get-account-balances.v1.yaml",
+  "member.deposit-to-account": "member-deposit-to-account.v1.yaml",
+  "member.withdraw-from-account": "member-withdraw-from-account.v1.yaml",
+  "member.get-transaction-history": "member-get-transaction-history.v1.yaml"
 };
 
 export async function loadCapabilityArtifact(capabilityId: string): Promise<CapabilityArtifact> {

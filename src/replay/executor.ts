@@ -362,18 +362,19 @@ async function runStep(
   adapter: PlaywrightSurfaceAdapter,
   outputs: Record<string, TypedOutput>
 ): Promise<ExecutionResult> {
-  const target = step.target ? await adapter.locate(step.target) : undefined;
+  const resolvedTarget = step.target ? resolveTargetDescriptor(step.target, invocation) : undefined;
+  const target = resolvedTarget ? await adapter.locate(resolvedTarget) : undefined;
   await invocation.evidence?.record("target_resolved", {
     stepId: step.id,
     payload: {
       target
     }
   });
-  if (step.target && target?.matchCount !== 1) {
+  if (resolvedTarget && target?.matchCount !== 1) {
     return failure({
       class: target && target.matchCount > 1 ? "TARGET_AMBIGUOUS" : "TARGET_NOT_FOUND",
       stepId: step.id,
-      expected: step.target.description ?? step.id,
+      expected: resolvedTarget.description ?? step.id,
       observed: `matchCount=${target?.matchCount ?? 0}`,
       recoverable: Boolean(step.recovery?.retries)
     });
@@ -437,6 +438,36 @@ function resolveValue(value: ValueSource | undefined, invocation: ReplayInvocati
   }
 
   return value.literal;
+}
+
+function resolveTargetDescriptor<T>(target: T, invocation: ReplayInvocation): T {
+  return resolveTemplateValue(target, invocation) as T;
+}
+
+function resolveTemplateValue(value: unknown, invocation: ReplayInvocation): unknown {
+  if (typeof value === "string") {
+    let resolved = value
+      .replaceAll("{{origin}}", invocation.origin)
+      .replaceAll("{{scenarioQuery}}", invocation.scenario ? `?scenario=${encodeURIComponent(invocation.scenario)}` : "");
+    for (const [key, inputValue] of Object.entries(invocation.inputs)) {
+      if (typeof inputValue === "string" || typeof inputValue === "number" || typeof inputValue === "boolean") {
+        resolved = resolved.replaceAll(`{{${key}}}`, String(inputValue));
+      }
+    }
+    return resolved;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => resolveTemplateValue(entry, invocation));
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, resolveTemplateValue(entry, invocation)])
+    );
+  }
+
+  return value;
 }
 
 function validateInputs(capability: CapabilityArtifact, inputs: Record<string, unknown>): ExecutionResult | undefined {

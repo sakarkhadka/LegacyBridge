@@ -57,6 +57,9 @@ describe("Heritage Core Servicing demo app", () => {
     expect(frame.status).toBe(200);
     expect(frameHtml).toContain("Savings");
     expect(frameHtml).toContain("$3,182.46");
+    expect(frameHtml).toContain("Deposit");
+    expect(frameHtml).toContain("Withdraw");
+    expect(frameHtml).toContain("Transactions");
   });
 
   it("represents member not found as a normal business screen", async () => {
@@ -116,6 +119,17 @@ describe("Heritage Core Servicing demo app", () => {
     expect(afterHtml).toContain("$0.00");
   });
 
+  it("shows the ten most recent transactions for an account", async () => {
+    const response = await fetch(`${baseUrl}/servicing/member/12345/account-transactions?accountNumber=S-100234`);
+    const html = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(html).toContain("Most Recent 10 Transactions");
+    expect(html).toContain("S-100234");
+    expect(html).toContain("Deposit");
+    expect(html).toContain("+$125.00");
+  });
+
   it("persists created sub-accounts across demo server instances when a state file is used", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "legacybridge-state-"));
     const statePath = join(tempDir, "state.json");
@@ -149,6 +163,63 @@ describe("Heritage Core Servicing demo app", () => {
       }
       if (secondServer) {
         await closeServer(secondServer);
+      }
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("deposits and withdraws funds from an account balance", async () => {
+    const depositReview = await fetch(`${baseUrl}/servicing/member/12345/account-transaction-review?operation=deposit&accountNumber=S-100234&amount=25.00`);
+    const depositConfirmation = await fetch(`${baseUrl}/servicing/member/12345/account-transaction-confirmed?operation=deposit&accountNumber=S-100234&amount=25.00`);
+    const withdrawalReview = await fetch(`${baseUrl}/servicing/member/12345/account-transaction-review?operation=withdraw&accountNumber=S-100234&amount=10.00`);
+    const withdrawalConfirmation = await fetch(`${baseUrl}/servicing/member/12345/account-transaction-confirmed?operation=withdraw&accountNumber=S-100234&amount=10.00`);
+    const frame = await fetch(`${baseUrl}/servicing/member/12345/accounts-frame`);
+    const transactions = await fetch(`${baseUrl}/servicing/member/12345/account-transactions?accountNumber=S-100234`);
+
+    expect(depositReview.status).toBe(200);
+    expect(await depositReview.text()).toContain("Projected Balance");
+    expect(depositConfirmation.status).toBe(200);
+    expect(await depositConfirmation.text()).toContain("$3,207.46");
+    expect(withdrawalReview.status).toBe(200);
+    expect(await withdrawalReview.text()).toContain("Withdrawal Review");
+    expect(withdrawalConfirmation.status).toBe(200);
+    expect(await withdrawalConfirmation.text()).toContain("$3,197.46");
+    expect(await frame.text()).toContain("$3,197.46");
+    const transactionsHtml = await transactions.text();
+    expect(transactionsHtml).toContain("-$10.00");
+    expect(transactionsHtml).toContain("+$25.00");
+  });
+
+  it("reports invalid transaction requests as business screens", async () => {
+    const invalidAmount = await fetch(`${baseUrl}/servicing/member/12345/account-transaction-review?operation=deposit&accountNumber=S-100234&amount=0`);
+    const insufficientFunds = await fetch(`${baseUrl}/servicing/member/12345/account-transaction-review?operation=withdraw&accountNumber=C-442910&amount=900.00`);
+
+    expect(invalidAmount.status).toBe(200);
+    expect(await invalidAmount.text()).toContain("Invalid amount");
+    expect(insufficientFunds.status).toBe(200);
+    expect(await insufficientFunds.text()).toContain("Insufficient funds");
+  });
+
+  it("uses account number to mutate the intended account when duplicate account types exist", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "legacybridge-duplicate-savings-"));
+    const statePath = join(tempDir, "state.json");
+    let persistentServer: DemoAppServer | undefined;
+
+    try {
+      persistentServer = createDemoAppServer({ persistState: true, statePath });
+      const persistentUrl = await listen(persistentServer);
+      await fetch(`${persistentUrl}/servicing/member/12345/sub-account-confirmed?accountType=savings&nickname=Reserve`);
+      const deposit = await fetch(`${persistentUrl}/servicing/member/12345/account-transaction-confirmed?operation=deposit&accountNumber=S-123403&amount=25.00`);
+      const frame = await fetch(`${persistentUrl}/servicing/member/12345/accounts-frame`);
+      const frameHtml = await frame.text();
+
+      expect(deposit.status).toBe(200);
+      expect(await deposit.text()).toContain("$25.00");
+      expect(frameHtml).toContain("S-100234</td>\n          <td class=\"amount\">$3,182.46");
+      expect(frameHtml).toContain("S-123403</td>\n          <td class=\"amount\">$25.00");
+    } finally {
+      if (persistentServer) {
+        await closeServer(persistentServer);
       }
       await rm(tempDir, { recursive: true, force: true });
     }

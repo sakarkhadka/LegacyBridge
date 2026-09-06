@@ -1,4 +1,4 @@
-import type { AccountBalanceValue, ValueType } from "../artifact/types.js";
+import type { AccountBalanceValue, TransactionHistoryValue, ValueType } from "../artifact/types.js";
 import type { TypedOutput } from "./results.js";
 
 export function parseOutput(raw: string, type: ValueType): TypedOutput {
@@ -12,6 +12,11 @@ export function parseOutput(raw: string, type: ValueType): TypedOutput {
       return {
         type,
         value: parseAccountBalances(raw)
+      };
+    case "transactionHistory":
+      return {
+        type,
+        value: parseTransactionHistory(raw)
       };
     case "number":
       return {
@@ -30,6 +35,42 @@ export function parseOutput(raw: string, type: ValueType): TypedOutput {
         value: raw.trim()
       };
   }
+}
+
+function parseTransactionHistory(raw: string): TransactionHistoryValue[] {
+  const rows = raw
+    .split("\n")
+    .map((row) => row.trim())
+    .filter(Boolean);
+  const dataRows = rows.filter((row) => !/^Date\/Time\s+/i.test(row) && !/^No transactions found$/i.test(row));
+  const transactions = dataRows.map((row) => {
+    const columns = row.split(/\t+/).map((column) => column.trim()).filter(Boolean);
+    if (columns.length < 6) {
+      throw new Error(`Unable to parse transaction history row: ${row}`);
+    }
+
+    return {
+      datetime: columns[0] ?? "",
+      accountNumber: columns[1] ?? "",
+      accountType: columns[2] ?? "",
+      type: parseTransactionType(columns[3] ?? ""),
+      amount: parseMoney(columns[4] ?? ""),
+      balance: parseMoney(columns[5] ?? "")
+    };
+  });
+
+  if (transactions.length === 0) {
+    throw new Error(`Unable to parse transaction history output: ${raw}`);
+  }
+
+  return transactions;
+}
+
+function parseTransactionType(raw: string): "Deposit" | "Withdraw" {
+  if (raw === "Deposit" || raw === "Withdraw") {
+    return raw;
+  }
+  throw new Error(`Unable to parse transaction type: ${raw}`);
 }
 
 function parseAccountBalances(raw: string): AccountBalanceValue[] {
@@ -59,13 +100,13 @@ function parseAccountBalances(raw: string): AccountBalanceValue[] {
 
 function parseMoney(raw: string): { amount: number; currency: string } {
   const normalized = raw.trim();
-  const match = normalized.match(/^\$?(-?[0-9,]+(?:\.[0-9]{2})?)$/);
+  const match = normalized.match(/^([+-])?\$?([0-9,]+(?:\.[0-9]{2})?)$/);
   if (!match) {
     throw new Error(`Unable to parse money output: ${raw}`);
   }
 
   return {
-    amount: Number(match[1]?.replaceAll(",", "")),
+    amount: Number(`${match[1] ?? ""}${match[2]?.replaceAll(",", "")}`),
     currency: "USD"
   };
 }

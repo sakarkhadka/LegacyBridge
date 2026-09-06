@@ -1,7 +1,7 @@
-import type { AccountBalanceValue, MoneyValue, ValueType } from "../artifact/types.js";
+import type { AccountBalanceValue, MoneyValue, TransactionHistoryValue, ValueType } from "../artifact/types.js";
 import type { ExecutionError } from "./errors.js";
 
-export type OutputValue = string | number | boolean | MoneyValue | AccountBalanceValue[];
+export type OutputValue = string | number | boolean | MoneyValue | AccountBalanceValue[] | TransactionHistoryValue[];
 
 export type TypedOutput = {
   type: ValueType;

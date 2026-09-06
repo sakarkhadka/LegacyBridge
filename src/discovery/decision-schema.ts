@@ -28,7 +28,8 @@ const locatorStrategySchema: z.ZodTypeAny = z.lazy(() =>
       description: z.string().min(1),
       containerText: z.string().min(1).optional(),
       rowText: z.string().min(1).optional(),
-      columnText: z.string().min(1).optional()
+      columnText: z.string().min(1).optional(),
+      controlText: z.string().min(1).optional()
     }),
     z.object({
       strategy: z.literal("frame"),
@@ -226,7 +227,8 @@ function locatorStrategyJsonSchemas() {
         description: { type: "string" },
         containerText: { type: "string" },
         rowText: { type: "string" },
-        columnText: { type: "string" }
+        columnText: { type: "string" },
+        controlText: { type: "string" }
       }
     },
     {

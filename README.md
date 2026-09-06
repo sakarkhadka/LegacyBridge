@@ -15,10 +15,18 @@ LegacyBridge is a focused end-to-end computer-use automation system for legacy b
 
 The target app is a local legacy-style servicing console named `Heritage Core Servicing`. It intentionally uses server-rendered pages, generated IDs, duplicate button labels, table layouts, and an accounts iframe so replay cannot depend on clean test IDs.
 
-The primary capability is:
+The primary read capability is:
 
 ```text
 member.get-account-balances(memberId) -> accountBalances[]
+```
+
+The demo also includes account-number based write and history capabilities:
+
+```text
+member.deposit-to-account(memberId, accountNumber, amount) -> newBalance
+member.withdraw-from-account(memberId, accountNumber, amount) -> newBalance
+member.get-transaction-history(memberId, accountNumber) -> transactions[]
 ```
 
 Synthetic demo data:
@@ -92,6 +100,17 @@ npm run demo:handoff
 npm run demo:catalog
 ```
 
+Try the approval-gated write flows after resetting seed data:
+
+```bash
+npm run demo:reset-data
+npm run replay -- --capability member.deposit-to-account --memberId 12345 --accountNumber S-100234 --amount 25.00 --approvalGranted
+npm run replay -- --capability member.withdraw-from-account --memberId 12345 --accountNumber C-442910 --amount 10.00 --approvalGranted
+npm run replay -- --capability member.get-transaction-history --memberId 12345 --accountNumber S-100234
+```
+
+Without `--approvalGranted`, replay stops at the final confirmation click with `POLICY_VIOLATION`.
+
 Run the full verification suite:
 
 ```bash
@@ -136,10 +155,13 @@ capabilities/generated/member-get-account-balances.draft.yaml
 
 The generated artifact parameterizes the discovered member number as `memberId`, declares `accountBalances` as a structured output, contains ordered semantic steps, includes a checkpoint, and validates under the same schema replay consumes. It does not contain the discovery literal `12345` or discovered account numbers.
 
-The hand-authored reviewed artifact is:
+The hand-authored reviewed artifacts are:
 
 ```text
 capabilities/member-get-account-balances.v1.yaml
+capabilities/member-deposit-to-account.v1.yaml
+capabilities/member-withdraw-from-account.v1.yaml
+capabilities/member-get-transaction-history.v1.yaml
 ```
 
 ## Replay
@@ -180,6 +202,20 @@ Expected output includes:
   },
   "llmDecisionCalls": 0
 }
+```
+
+Run a mutating capability with explicit approval:
+
+```bash
+npm run replay -- --capability member.deposit-to-account --memberId 12345 --accountNumber S-100234 --amount 25.00 --approvalGranted
+```
+
+Expected output includes `newBalance` as typed money. Because normal CLI runs use `demo-app/state.json`, a later account-balance replay on any port will reflect the updated balance until you run `npm run demo:reset-data`.
+
+Fetch the latest ten account transactions:
+
+```bash
+npm run replay -- --capability member.get-transaction-history --memberId 12345 --accountNumber S-100234
 ```
 
 ## Error Behavior
@@ -227,6 +263,8 @@ Guardrails are structural, not prompt-only:
 
 The risky-action demo surface exists in the local app (`Open Sub Account` -> `Review` -> `Confirm Opening`) so the policy layer has a concrete irreversible action to classify. Confirming the flow creates a new sub-account in `demo-app/state.json`, so the account appears in the member's refreshed accounts list and in later replay runs on other ports. Production catalog invocation rejects `draft` capabilities and allows only `approved` or `active` artifacts.
 
+Deposit and withdrawal replay demonstrate row-scoped write automation. The artifact selects the requested account row by exact `accountNumber`, clicks the matching `Deposit` or `Withdraw` control, fills the amount, reviews the projected balance, and only allows the final confirmation step when approval is granted. This keeps duplicate account types, such as two Savings accounts, from receiving the wrong transaction.
+
 ## Evidence
 
 Regenerate curated no-cost evidence:
@@ -246,6 +284,9 @@ evidence/replay-recovery/run.jsonl
 evidence/replay-failure/run.jsonl
 evidence/human-handoff/run.jsonl
 evidence/artifacts/member-get-account-balances.v1.yaml
+evidence/artifacts/member-deposit-to-account.v1.yaml
+evidence/artifacts/member-withdraw-from-account.v1.yaml
+evidence/artifacts/member-get-transaction-history.v1.yaml
 ```
 
 The JSONL logs show model decisions, observations, policy checks, locator strategy used, fallback use, actions, recovery attempts, checkpoint pass/fail, business outcomes, failures, human actions, ownership transfer, automation resume, and `llmDecisionCalls: 0` for replay. Synthetic member IDs are redacted.

@@ -61,6 +61,9 @@ function printHelp(): void {
   console.log("");
   console.log("Replay example:");
   console.log("  npm run replay -- --capability member.get-account-balances --memberId 54321");
+  console.log("  npm run replay -- --capability member.get-transaction-history --memberId 12345 --accountNumber S-100234");
+  console.log("  npm run replay -- --capability member.deposit-to-account --memberId 12345 --accountNumber S-100234 --amount 25.00 --approvalGranted");
+  console.log("  npm run replay -- --capability member.withdraw-from-account --memberId 12345 --accountNumber C-442910 --amount 10.00 --approvalGranted");
   console.log("  npm run replay -- --capabilityPath capabilities/generated/member-get-account-balances.draft.yaml --memberId 54321");
   console.log("");
   console.log("Discovery example:");
@@ -170,13 +173,12 @@ async function runReplayCommand(args: string[]): Promise<void> {
       : await loadCapabilityArtifact(capabilityId);
     const summary = await replayCapability({
       capability,
-      inputs: {
-        memberId
-      },
+      inputs: replayInputs(options, memberId),
       origin,
       scenario: options.scenario,
       headless: options.headless !== "false",
-      evidence
+      evidence,
+      approvalGranted: options.approvalGranted === "true"
     });
 
     console.log(JSON.stringify(summary, null, 2));
@@ -477,6 +479,9 @@ async function runEvidenceCommand(args: string[]): Promise<void> {
   ]);
   await mkdir("evidence/artifacts", { recursive: true });
   await copyFile("capabilities/member-get-account-balances.v1.yaml", "evidence/artifacts/member-get-account-balances.v1.yaml");
+  await copyFile("capabilities/member-deposit-to-account.v1.yaml", "evidence/artifacts/member-deposit-to-account.v1.yaml");
+  await copyFile("capabilities/member-withdraw-from-account.v1.yaml", "evidence/artifacts/member-withdraw-from-account.v1.yaml");
+  await copyFile("capabilities/member-get-transaction-history.v1.yaml", "evidence/artifacts/member-get-transaction-history.v1.yaml");
 
   console.log(JSON.stringify({
     status: "evidence_generated",
@@ -487,7 +492,10 @@ async function runEvidenceCommand(args: string[]): Promise<void> {
       "evidence/replay-recovery/run.jsonl",
       "evidence/replay-failure/run.jsonl",
       "evidence/human-handoff/run.jsonl",
-      "evidence/artifacts/member-get-account-balances.v1.yaml"
+      "evidence/artifacts/member-get-account-balances.v1.yaml",
+      "evidence/artifacts/member-deposit-to-account.v1.yaml",
+      "evidence/artifacts/member-withdraw-from-account.v1.yaml",
+      "evidence/artifacts/member-get-transaction-history.v1.yaml"
     ]
   }, null, 2));
 }
@@ -516,7 +524,7 @@ async function runValidateCapabilityCommand(args: string[]): Promise<void> {
       runs,
       headless: options.headless !== "false",
       inputsForRun: () => ({
-        memberId
+        ...replayInputs(options, memberId)
       })
     });
     const validatedCapability = {
@@ -633,7 +641,27 @@ function defaultCapabilityPath(capabilityId: string): string {
   if (capabilityId === "member.get-account-balances" || capabilityId === "member.get-savings-balance") {
     return join("capabilities", "member-get-account-balances.v1.yaml");
   }
+  if (capabilityId === "member.deposit-to-account") {
+    return join("capabilities", "member-deposit-to-account.v1.yaml");
+  }
+  if (capabilityId === "member.withdraw-from-account") {
+    return join("capabilities", "member-withdraw-from-account.v1.yaml");
+  }
+  if (capabilityId === "member.get-transaction-history") {
+    return join("capabilities", "member-get-transaction-history.v1.yaml");
+  }
   return join("capabilities", `${capabilityId}.yaml`);
+}
+
+function replayInputs(options: Record<string, string>, memberId: string): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries({
+      memberId,
+      accountNumber: options.accountNumber,
+      accountType: options.accountType,
+      amount: options.amount
+    }).filter((entry): entry is [string, string] => typeof entry[1] === "string")
+  );
 }
 
 function createCliDemoAppServer(options: Record<string, string>): DemoAppServer {
@@ -807,7 +835,7 @@ function scriptedAccountBalanceLookupDecisions(origin: string) {
       type: "goal_complete" as const,
       reason: "The account balances have been extracted from the member account table.",
       outputs: {
-        accountBalances: "Account Type\tAccount Number\tBalance\tAction\nSavings\tS-100234\t$3,182.46\tDetails\nChecking\tC-442910\t$842.10\tDetails"
+        accountBalances: "Account Type\tAccount Number\tBalance\tActions\nSavings\tS-100234\t$3,182.46\tDeposit Withdraw Transactions\nChecking\tC-442910\t$842.10\tDeposit Withdraw Transactions"
       }
     }
   ];
