@@ -1,4 +1,4 @@
-import type { ValueType } from "../artifact/types.js";
+import type { AccountBalanceValue, ValueType } from "../artifact/types.js";
 import type { TypedOutput } from "./results.js";
 
 export function parseOutput(raw: string, type: ValueType): TypedOutput {
@@ -7,6 +7,11 @@ export function parseOutput(raw: string, type: ValueType): TypedOutput {
       return {
         type,
         value: parseMoney(raw)
+      };
+    case "accountBalances":
+      return {
+        type,
+        value: parseAccountBalances(raw)
       };
     case "number":
       return {
@@ -27,6 +32,31 @@ export function parseOutput(raw: string, type: ValueType): TypedOutput {
   }
 }
 
+function parseAccountBalances(raw: string): AccountBalanceValue[] {
+  const rows = raw
+    .split("\n")
+    .map((row) => row.trim())
+    .filter(Boolean);
+  const dataRows = rows.filter((row) => !/^Account Type\s+/i.test(row));
+  const balances = dataRows.map((row) => {
+    const columns = row.split(/\t+/).map((column) => column.trim()).filter(Boolean);
+    if (columns.length < 3) {
+      throw new Error(`Unable to parse account balance row: ${row}`);
+    }
+
+    return {
+      accountType: columns[0] ?? "",
+      balance: parseMoney(columns[2] ?? "")
+    };
+  });
+
+  if (balances.length === 0) {
+    throw new Error(`Unable to parse account balances output: ${raw}`);
+  }
+
+  return balances;
+}
+
 function parseMoney(raw: string): { amount: number; currency: string } {
   const normalized = raw.trim();
   const match = normalized.match(/^\$?(-?[0-9,]+(?:\.[0-9]{2})?)$/);
@@ -39,4 +69,3 @@ function parseMoney(raw: string): { amount: number; currency: string } {
     currency: "USD"
   };
 }
-

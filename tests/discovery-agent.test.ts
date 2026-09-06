@@ -23,7 +23,7 @@ beforeAll(async () => {
     throw new Error("Expected demo app to listen on a TCP address");
   }
   origin = `http://127.0.0.1:${address.port}`;
-  capability = await loadCapabilityArtifact("member.get-savings-balance");
+  capability = await loadCapabilityArtifact("member.get-account-balances");
 }, 30_000);
 
 afterAll(async () => {
@@ -106,14 +106,13 @@ describe("discovery agent", () => {
       },
       {
         type: "act",
-        reason: "Extract the Savings row balance.",
+        reason: "Extract the accounts table.",
         action: {
           type: "extract",
           target: {
             primary: {
               strategy: "structural",
-              description: "Balance cell in the Accounts table for the Savings row",
-              rowText: "Savings",
+              description: "Full Accounts table containing account type, account number, and balance columns",
               columnText: "Balance"
             }
           }
@@ -121,15 +120,15 @@ describe("discovery agent", () => {
       },
       {
         type: "goal_complete",
-        reason: "The savings balance was extracted.",
+        reason: "The account balances were extracted.",
         outputs: {
-          balance: "$3,182.46"
+          accountBalances: "Account Type\tAccount Number\tBalance\tAction\nSavings\tS-100234\t$3,182.46\tDetails\nChecking\tC-442910\t$842.10\tDetails"
         }
       }
     ]);
 
     const result = await runDiscovery({
-      goal: "Look up member 12345 and return their current savings balance.",
+      goal: "Look up member 12345 and return every available account balance.",
       entrypoint: `${origin}/servicing/search`,
       surface,
       model,
@@ -140,7 +139,7 @@ describe("discovery agent", () => {
     expect(result.status).toBe("success");
     expect(result.stopReason).toBe("goal_completed");
     expect(result.modelDecisionCalls).toBe(4);
-    expect(result.outputs.balance).toBe("$3,182.46");
+    expect(result.outputs.accountBalances).toBe("Account Type\tAccount Number\tBalance\tAction\nSavings\tS-100234\t$3,182.46\tDetails\nChecking\tC-442910\t$842.10\tDetails");
     expect(result.trace.some((event) => event.type === "observation")).toBe(true);
     expect(result.trace.some((event) => event.type === "model_decision")).toBe(true);
     expect(result.trace.some((event) => event.type === "action_result")).toBe(true);
@@ -180,13 +179,13 @@ describe("discovery agent", () => {
         type: "goal_complete",
         reason: "Claimed too early.",
         outputs: {
-          balance: "$3,182.46"
+          accountBalances: "Account Type\tAccount Number\tBalance\tAction\nSavings\tS-100234\t$3,182.46\tDetails\nChecking\tC-442910\t$842.10\tDetails"
         }
       }
     ]);
 
     const result = await runDiscovery({
-      goal: "Look up member 12345 and return their current savings balance.",
+      goal: "Look up member 12345 and return every available account balance.",
       entrypoint: `${origin}/servicing/search`,
       surface,
       model,

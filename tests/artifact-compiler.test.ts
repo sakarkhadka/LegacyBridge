@@ -46,13 +46,13 @@ afterEach(async () => {
 
 describe("artifact compiler", () => {
   it("compiles successful discovery into a redacted draft artifact that replays without LLM decisions", async () => {
-    const policyCapability = await loadCapabilityArtifact("member.get-savings-balance");
+    const policyCapability = await loadCapabilityArtifact("member.get-account-balances");
     session = await createPlaywrightSession({ headless: true });
     const surface = new PlaywrightSurfaceAdapter({
       page: session.page,
       sessionId: session.id
     });
-    const goal = "Look up member 12345 and return their current savings balance.";
+    const goal = "Look up member 12345 and return every available account balance.";
     const discovery = await runDiscovery({
       goal,
       entrypoint: `${origin}/servicing/search`,
@@ -105,15 +105,14 @@ describe("artifact compiler", () => {
         },
         {
           type: "act",
-          reason: "Extract the Savings row balance.",
+          reason: "Extract the accounts table.",
           action: {
             type: "extract",
             target: {
-              description: "Savings balance cell",
+              description: "Accounts table with all available balances",
               primary: {
                 strategy: "structural",
-                description: "Balance cell in the Accounts table for the Savings row",
-                rowText: "Savings",
+                description: "Full Accounts table containing account type, account number, and balance columns",
                 columnText: "Balance"
               }
             }
@@ -121,9 +120,9 @@ describe("artifact compiler", () => {
         },
         {
           type: "goal_complete",
-          reason: "The savings balance was extracted.",
+          reason: "The account balances were extracted.",
           outputs: {
-            balance: "$3,182.46"
+            accountBalances: "Account Type\tAccount Number\tBalance\tAction\nSavings\tS-100234\t$3,182.46\tDetails\nChecking\tC-442910\t$842.10\tDetails"
           }
         }
       ]),
@@ -136,19 +135,21 @@ describe("artifact compiler", () => {
       goal,
       run: discovery
     });
-    const outputPath = join("capabilities", "generated", "member-get-savings-balance.draft.yaml");
+    const outputPath = join("capabilities", "generated", "member-get-account-balances.draft.yaml");
     await saveCapabilityArtifact(outputPath, artifact);
     const yaml = await readFile(outputPath, "utf8");
 
     expect(yaml).not.toContain("12345");
+    expect(yaml).not.toContain("S-100234");
+    expect(yaml).not.toContain("C-442910");
     expect(artifact.capability.status).toBe("draft");
     expect(artifact.inputs.memberId).toBeDefined();
-    expect(artifact.outputs.balance).toBeDefined();
+    expect(artifact.outputs.accountBalances).toBeDefined();
     expect(artifact.steps.length).toBeGreaterThanOrEqual(4);
     expect(artifact.steps.every((step) => step.action === "navigate" || step.target)).toBe(true);
     expect(artifact.checkpoint.conditions).toContainEqual({
       type: "output_present",
-      output: "balance"
+      output: "accountBalances"
     });
     expect(() => parseCapabilityArtifact(artifact)).not.toThrow();
 
@@ -165,12 +166,24 @@ describe("artifact compiler", () => {
     if (replay.result.status !== "success") {
       throw new Error("Expected replay success");
     }
-    expect(replay.result.outputs.balance).toEqual({
-      type: "money",
-      value: {
-        amount: 8044.19,
-        currency: "USD"
-      }
+    expect(replay.result.outputs.accountBalances).toEqual({
+      type: "accountBalances",
+      value: [
+        {
+          accountType: "Savings",
+          balance: {
+            amount: 8044.19,
+            currency: "USD"
+          }
+        },
+        {
+          accountType: "Checking",
+          balance: {
+            amount: 12000,
+            currency: "USD"
+          }
+        }
+      ]
     });
   }, 30_000);
 });

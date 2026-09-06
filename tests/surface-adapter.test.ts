@@ -41,12 +41,11 @@ const searchButtonTarget: TargetDescriptor = {
   ]
 };
 
-const savingsBalanceTarget: TargetDescriptor = {
-  description: "Savings balance cell",
+const accountBalancesTarget: TargetDescriptor = {
+  description: "Accounts table with all available balances",
   primary: {
     strategy: "structural",
-    description: "Balance cell in the Accounts table for the Savings row",
-    rowText: "Savings",
+    description: "Full Accounts table containing account type, account number, and balance columns",
     columnText: "Balance"
   }
 };
@@ -107,7 +106,7 @@ describe("Playwright surface adapter", () => {
     expect(searchButton.matchCount).toBe(1);
   });
 
-  it("locates and extracts the Savings balance cell inside the accounts iframe", async () => {
+  it("locates and extracts all available account balances inside the accounts iframe", async () => {
     await adapter.act({ type: "navigate", value: `${baseUrl}/servicing/search` });
     const memberNumber = await adapter.locate(memberNumberTarget);
     const searchButton = await adapter.locate(searchButtonTarget);
@@ -116,15 +115,15 @@ describe("Playwright surface adapter", () => {
     await adapter.act({ type: "click" }, searchButton);
     await session.page.waitForURL("**/servicing/member/12345");
 
-    const balanceCell = await adapter.locate(savingsBalanceTarget);
-    const extraction = await adapter.act({ type: "extract" }, balanceCell);
+    const balancesTable = await adapter.locate(accountBalancesTarget);
+    const extraction = await adapter.act({ type: "extract" }, balancesTable);
 
-    expect(balanceCell.strategyUsed).toBe("structural");
-    expect(balanceCell.matchCount).toBe(1);
-    expect(balanceCell.fallbackUsed).toBe(false);
+    expect(balancesTable.strategyUsed).toBe("structural");
+    expect(balancesTable.matchCount).toBe(1);
+    expect(balancesTable.fallbackUsed).toBe(false);
     expect(extraction).toEqual({
       ok: true,
-      observed: "$3,182.46"
+      observed: "Account Type\tAccount Number\tBalance\tAction\nSavings\tS-100234\t$3,182.46\tDetails\nChecking\tC-442910\t$842.10\tDetails"
     });
   });
 });

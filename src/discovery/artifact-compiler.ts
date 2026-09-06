@@ -32,10 +32,10 @@ export function compileDiscoveryToArtifact(options: CompileDiscoveryOptions): Ca
   const artifact = parseCapabilityArtifact({
     schemaVersion: "1.0",
     capability: {
-      id: "member.get-savings-balance.generated",
+      id: "member.get-account-balances.generated",
       version: "0.1.0",
-      name: "Get savings balance",
-      description: "Draft generated from discovery for deterministic replay of a synthetic member savings lookup.",
+      name: "Get account balances",
+      description: "Draft generated from discovery for deterministic replay of a synthetic member account balance lookup.",
       status: "draft"
     },
     targetApplication: {
@@ -50,10 +50,10 @@ export function compileDiscoveryToArtifact(options: CompileDiscoveryOptions): Ca
     },
     inputs: parameterization.inputs,
     outputs: {
-      balance: {
-        type: "money",
+      accountBalances: {
+        type: "accountBalances",
         required: true,
-        description: "Current savings balance."
+        description: "Available account balances for the member."
       }
     },
     outcomes: [
@@ -69,7 +69,7 @@ export function compileDiscoveryToArtifact(options: CompileDiscoveryOptions): Ca
       }
     ],
     steps,
-    checkpoint: buildDiscoveryCheckpoint("balance"),
+    checkpoint: buildDiscoveryCheckpoint("accountBalances"),
     policy: {
       allowedOrigins: ["{{origin}}", "http://localhost:3000"],
       allowedRoutes: ["/servicing/*"],
@@ -136,8 +136,8 @@ function compileDecisionStep(
     return {
       ...base,
       output: {
-        name: "balance",
-        parseAs: "money",
+        name: "accountBalances",
+        parseAs: "accountBalances",
         source: target
       }
     };
@@ -154,7 +154,7 @@ function stepIdForDecision(decision: ActionDecision, index: number): string {
     return "search-member";
   }
   if (decision.action.type === "extract") {
-    return "extract-savings-balance";
+    return "extract-account-balances";
   }
   return `${decision.action.type}-${index}`;
 }

@@ -40,7 +40,7 @@ describe("policy engine and redaction", () => {
   }, 30_000);
 
   it("blocks navigation to an external origin before surface execution", async () => {
-    const capability = cloneCapability(await loadCapabilityArtifact("member.get-savings-balance"));
+    const capability = cloneCapability(await loadCapabilityArtifact("member.get-account-balances"));
     capability.steps[0] = {
       ...capability.steps[0]!,
       value: {
@@ -65,7 +65,7 @@ describe("policy engine and redaction", () => {
   }, 30_000);
 
   it("blocks a non-allowlisted action before surface execution", async () => {
-    const capability = cloneCapability(await loadCapabilityArtifact("member.get-savings-balance"));
+    const capability = cloneCapability(await loadCapabilityArtifact("member.get-account-balances"));
     capability.policy.allowedActions = capability.policy.allowedActions.filter((action) => action !== "fill");
 
     const summary = await replayCapability({
@@ -124,7 +124,7 @@ describe("policy engine and redaction", () => {
   });
 
   it("redacts sensitive invocation values from replay failure details", async () => {
-    const capability = await loadCapabilityArtifact("member.get-savings-balance");
+    const capability = await loadCapabilityArtifact("member.get-account-balances");
     const summary = await replayCapability({
       capability,
       inputs: {
@@ -139,7 +139,7 @@ describe("policy engine and redaction", () => {
   }, 30_000);
 
   it("does not serialize actual invocation member IDs into the capability artifact", async () => {
-    const artifact = await readFile("capabilities/member-get-savings-balance.v1.yaml", "utf8");
+    const artifact = await readFile("capabilities/member-get-account-balances.v1.yaml", "utf8");
 
     expect(artifact).toContain("parameter: memberId");
     expect(artifact).not.toContain("12345");

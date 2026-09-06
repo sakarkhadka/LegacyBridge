@@ -13,7 +13,8 @@ export function sensitiveValuesFromInputs(capability: CapabilityArtifact, inputs
 }
 
 export function redactText(text: string, sensitiveValues: string[]): string {
-  return sensitiveValues.reduce((redacted, value) => redacted.replaceAll(value, redactionToken), text);
+  const explicitRedactions = sensitiveValues.reduce((redacted, value) => redacted.replaceAll(value, redactionToken), text);
+  return explicitRedactions.replace(/\b[A-Z]-\d{6}\b/g, redactionToken);
 }
 
 export function redactStructuredValue<T>(value: T, sensitiveValues: string[]): T {
@@ -41,4 +42,3 @@ export function redactExecutionResult(result: ExecutionResult, sensitiveValues: 
 export function redactLogEvent<T extends Record<string, unknown>>(event: T, sensitiveValues: string[]): T {
   return redactStructuredValue(event, sensitiveValues);
 }
-

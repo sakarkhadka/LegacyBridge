@@ -18,16 +18,24 @@ The target app is a local legacy-style servicing console named `Heritage Core Se
 The primary capability is:
 
 ```text
-member.get-savings-balance(memberId) -> balance
+member.get-account-balances(memberId) -> accountBalances[]
 ```
 
 Synthetic demo data:
 
 ```text
-12345 -> $3,182.46
-54321 -> $8,044.19
+12345 -> Savings $3,182.46; Checking $842.10
+54321 -> Savings $8,044.19; Checking $12,000.00
 00000 -> MEMBER_NOT_FOUND
 88888 -> PERMISSION_DENIED
+```
+
+Manual demo and CLI runs share mutable demo state through `demo-app/state.json`. The file is created from the committed seed data on first use and is ignored by git.
+
+Reset local demo state:
+
+```bash
+npm run demo:reset-data
 ```
 
 ## Architecture
@@ -77,7 +85,7 @@ Run the main no-cost path:
 
 ```bash
 npm run demo:compile
-npm run replay -- --capabilityPath capabilities/generated/member-get-savings-balance.draft.yaml --memberId 54321
+npm run replay -- --capabilityPath capabilities/generated/member-get-account-balances.draft.yaml --memberId 54321
 npm run demo:not-found
 npm run demo:recovery
 npm run demo:handoff
@@ -123,15 +131,15 @@ npm run demo:compile
 Generated output:
 
 ```text
-capabilities/generated/member-get-savings-balance.draft.yaml
+capabilities/generated/member-get-account-balances.draft.yaml
 ```
 
-The generated artifact parameterizes the discovered member number as `memberId`, declares `balance` as a money output, contains ordered semantic steps, includes a checkpoint, and validates under the same schema replay consumes. It does not contain the discovery literal `12345`.
+The generated artifact parameterizes the discovered member number as `memberId`, declares `accountBalances` as a structured output, contains ordered semantic steps, includes a checkpoint, and validates under the same schema replay consumes. It does not contain the discovery literal `12345` or discovered account numbers.
 
 The hand-authored reviewed artifact is:
 
 ```text
-capabilities/member-get-savings-balance.v1.yaml
+capabilities/member-get-account-balances.v1.yaml
 ```
 
 ## Replay
@@ -139,7 +147,7 @@ capabilities/member-get-savings-balance.v1.yaml
 Replay with a different member and zero LLM decision calls:
 
 ```bash
-npm run replay -- --capability member.get-savings-balance --memberId 54321
+npm run replay -- --capability member.get-account-balances --memberId 54321
 ```
 
 Expected output includes:
@@ -149,12 +157,24 @@ Expected output includes:
   "result": {
     "status": "success",
     "outputs": {
-      "balance": {
-        "type": "money",
-        "value": {
-          "amount": 8044.19,
-          "currency": "USD"
-        }
+      "accountBalances": {
+        "type": "accountBalances",
+        "value": [
+          {
+            "accountType": "Savings",
+            "balance": {
+              "amount": 8044.19,
+              "currency": "USD"
+            }
+          },
+          {
+            "accountType": "Checking",
+            "balance": {
+              "amount": 12000,
+              "currency": "USD"
+            }
+          }
+        ]
       }
     }
   },
@@ -205,7 +225,7 @@ Guardrails are structural, not prompt-only:
 - human approval requirement for irreversible actions
 - redaction of sensitive inputs in artifacts, logs, and structured results
 
-The risky-action demo surface exists in the local app (`Open Sub Account` -> `Review` -> `Confirm Opening`) so the policy layer has a concrete irreversible action to classify. Production catalog invocation rejects `draft` capabilities and allows only `approved` or `active` artifacts.
+The risky-action demo surface exists in the local app (`Open Sub Account` -> `Review` -> `Confirm Opening`) so the policy layer has a concrete irreversible action to classify. Confirming the flow creates a new sub-account in `demo-app/state.json`, so the account appears in the member's refreshed accounts list and in later replay runs on other ports. Production catalog invocation rejects `draft` capabilities and allows only `approved` or `active` artifacts.
 
 ## Evidence
 
@@ -225,7 +245,7 @@ evidence/replay-business-outcome/run.jsonl
 evidence/replay-recovery/run.jsonl
 evidence/replay-failure/run.jsonl
 evidence/human-handoff/run.jsonl
-evidence/artifacts/member-get-savings-balance.v1.yaml
+evidence/artifacts/member-get-account-balances.v1.yaml
 ```
 
 The JSONL logs show model decisions, observations, policy checks, locator strategy used, fallback use, actions, recovery attempts, checkpoint pass/fail, business outcomes, failures, human actions, ownership transfer, automation resume, and `llmDecisionCalls: 0` for replay. Synthetic member IDs are redacted.
@@ -233,7 +253,7 @@ The JSONL logs show model decisions, observations, policy checks, locator strate
 ## Capability Validation
 
 ```bash
-npm run validate-capability -- member.get-savings-balance --runs 5
+npm run validate-capability -- member.get-account-balances --runs 5
 ```
 
 This replays the artifact multiple times, reports success/failure counts and primary/fallback locator usage, and stores a `validation` block. A perfect run reports `eligible-for-approval`; it does not automatically approve the artifact.
@@ -248,7 +268,7 @@ The catalog exposes:
 
 ```http
 GET /capabilities
-POST /capabilities/member.get-savings-balance/invoke
+POST /capabilities/member.get-account-balances/invoke
 ```
 
 The public manifest includes only `name`, `description`, `inputs`, `outputs`, and `risk`. Calling agents provide business inputs like `{ "memberId": "54321" }`; they do not need to know Playwright, selectors, iframes, coordinates, pages, or DOM structure.
@@ -274,7 +294,7 @@ src/intervention   Same-session human handoff state and operator seam
 src/policy         Allowlists, risk classification, redaction
 src/replay         Deterministic capability execution path
 src/surface        Surface abstraction and Playwright adapter
-demo-app           Local legacy banking proxy target
+demo-app           Local legacy banking proxy target and JSON-backed demo state
 capabilities       Saved and generated capability artifacts
 evidence           Curated reviewer evidence
 tests              Focused architectural and runtime tests

@@ -75,6 +75,19 @@ const actionSchema = z
     }
   });
 
+const goalOutputsSchema = z.preprocess((value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [
+      key,
+      typeof entry === "string" ? entry : JSON.stringify(entry)
+    ])
+  );
+}, z.record(z.string()));
+
 export const agentDecisionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("act"),
@@ -84,7 +97,7 @@ export const agentDecisionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("goal_complete"),
     reason: z.string().min(1),
-    outputs: z.record(z.string()).default({})
+    outputs: goalOutputsSchema.default({})
   }),
   z.object({
     type: z.literal("dead_end"),
@@ -113,7 +126,13 @@ export const agentDecisionJsonSchema = {
     outputs: {
       type: "object",
       additionalProperties: {
-        type: "string"
+        anyOf: [
+          { type: "string" },
+          { type: "number" },
+          { type: "boolean" },
+          { type: "array" },
+          { type: "object" }
+        ]
       }
     },
     action: {

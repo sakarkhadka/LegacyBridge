@@ -37,12 +37,11 @@ const targets: Record<string, TargetDescriptor> = {
       }
     ]
   },
-  savingsBalance: {
-    description: "Savings balance cell",
+  accountBalances: {
+    description: "Accounts table with all available balances",
     primary: {
       strategy: "structural",
-      description: "Balance cell in the Accounts table for the Savings row",
-      rowText: "Savings",
+      description: "Full Accounts table containing account type, account number, and balance columns",
       columnText: "Balance"
     }
   }
@@ -71,8 +70,8 @@ try {
   await adapter.act({ type: "click" }, searchButton);
   await session.page.waitForURL("**/servicing/member/12345");
 
-  const savingsBalance = await adapter.locate(targets.savingsBalance);
-  const extracted = await adapter.act({ type: "extract" }, savingsBalance);
+  const accountBalances = await adapter.locate(targets.accountBalances);
+  const extracted = await adapter.act({ type: "extract" }, accountBalances);
 
   console.log(JSON.stringify(
     {
@@ -81,9 +80,9 @@ try {
       resolvedTargets: {
         memberNumber,
         searchButton,
-        savingsBalance
+        accountBalances
       },
-      extractedSavingsBalance: extracted.observed
+      extractedAccountBalances: extracted.observed
     },
     null,
     2

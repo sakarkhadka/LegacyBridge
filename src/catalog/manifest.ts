@@ -34,8 +34,8 @@ function publicInput(definition: InputDefinition): PublicInputDefinition {
 }
 
 function publicDescription(capability: CapabilityArtifact): string {
-  if (capability.capability.id === "member.get-savings-balance") {
-    return "Retrieve a member's current savings balance.";
+  if (capability.capability.id === "member.get-account-balances") {
+    return "Retrieve every available account balance for a member.";
   }
   return capability.capability.description;
 }

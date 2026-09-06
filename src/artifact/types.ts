@@ -10,13 +10,18 @@ export const capabilityStatuses = [
 
 export type CapabilityStatus = (typeof capabilityStatuses)[number];
 
-export const valueTypes = ["string", "number", "boolean", "money", "enum"] as const;
+export const valueTypes = ["string", "number", "boolean", "money", "enum", "accountBalances"] as const;
 
 export type ValueType = (typeof valueTypes)[number];
 
 export type MoneyValue = {
   amount: number;
   currency: string;
+};
+
+export type AccountBalanceValue = {
+  accountType: string;
+  balance: MoneyValue;
 };
 
 export type InputDefinition = {

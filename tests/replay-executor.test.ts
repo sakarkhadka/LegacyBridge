@@ -32,16 +32,16 @@ afterAll(async () => {
 
 describe("deterministic replay executor", () => {
   it("loads the hand-authored replay capability through the artifact schema", async () => {
-    const capability = await loadCapabilityArtifact("member.get-savings-balance");
+    const capability = await loadCapabilityArtifact("member.get-account-balances");
 
     expect(capability.schemaVersion).toBe("1.0");
-    expect(capability.capability.id).toBe("member.get-savings-balance");
+    expect(capability.capability.id).toBe("member.get-account-balances");
     expect(capability.inputs.memberId?.sensitive).toBe(true);
     expect(capability.steps).toHaveLength(4);
   });
 
-  it("replays the savings lookup for a different member without LLM decisions", async () => {
-    const capability = await loadCapabilityArtifact("member.get-savings-balance");
+  it("replays the account balances lookup for a different member without LLM decisions", async () => {
+    const capability = await loadCapabilityArtifact("member.get-account-balances");
     const summary = await replayCapability({
       capability,
       inputs: {
@@ -55,19 +55,31 @@ describe("deterministic replay executor", () => {
     if (summary.result.status !== "success") {
       throw new Error("Expected replay success");
     }
-    expect(summary.result.outputs.balance).toEqual({
-      type: "money",
-      value: {
-        amount: 8044.19,
-        currency: "USD"
-      }
+    expect(summary.result.outputs.accountBalances).toEqual({
+      type: "accountBalances",
+      value: [
+        {
+          accountType: "Savings",
+          balance: {
+            amount: 8044.19,
+            currency: "USD"
+          }
+        },
+        {
+          accountType: "Checking",
+          balance: {
+            amount: 12000,
+            currency: "USD"
+          }
+        }
+      ]
     });
   });
 
   it("replays successfully when model credentials are unavailable", async () => {
     const previousKey = process.env.OPENAI_API_KEY;
     delete process.env.OPENAI_API_KEY;
-    const capability = await loadCapabilityArtifact("member.get-savings-balance");
+    const capability = await loadCapabilityArtifact("member.get-account-balances");
 
     try {
       const summary = await replayCapability({
@@ -90,7 +102,7 @@ describe("deterministic replay executor", () => {
   });
 
   it("returns member not found as a business outcome instead of a failure", async () => {
-    const capability = await loadCapabilityArtifact("member.get-savings-balance");
+    const capability = await loadCapabilityArtifact("member.get-account-balances");
     const summary = await replayCapability({
       capability,
       inputs: {
@@ -110,7 +122,7 @@ describe("deterministic replay executor", () => {
   });
 
   it("recovers from a known interstitial and then succeeds", async () => {
-    const capability = await loadCapabilityArtifact("member.get-savings-balance");
+    const capability = await loadCapabilityArtifact("member.get-account-balances");
     const summary = await replayCapability({
       capability,
       inputs: {
@@ -131,7 +143,7 @@ describe("deterministic replay executor", () => {
   });
 
   it("records transient slow-load recovery metadata and succeeds", async () => {
-    const capability = await loadCapabilityArtifact("member.get-savings-balance");
+    const capability = await loadCapabilityArtifact("member.get-account-balances");
     const summary = await replayCapability({
       capability,
       inputs: {
@@ -147,7 +159,7 @@ describe("deterministic replay executor", () => {
   });
 
   it("classifies permission denied as a hard failure", async () => {
-    const capability = await loadCapabilityArtifact("member.get-savings-balance");
+    const capability = await loadCapabilityArtifact("member.get-account-balances");
     const summary = await replayCapability({
       capability,
       inputs: {
@@ -166,7 +178,7 @@ describe("deterministic replay executor", () => {
   });
 
   it("classifies session expiration as a hard failure", async () => {
-    const capability = await loadCapabilityArtifact("member.get-savings-balance");
+    const capability = await loadCapabilityArtifact("member.get-account-balances");
     const summary = await replayCapability({
       capability,
       inputs: {
@@ -184,7 +196,7 @@ describe("deterministic replay executor", () => {
   });
 
   it("classifies application error as a hard failure", async () => {
-    const capability = await loadCapabilityArtifact("member.get-savings-balance");
+    const capability = await loadCapabilityArtifact("member.get-account-balances");
     const summary = await replayCapability({
       capability,
       inputs: {
@@ -202,7 +214,7 @@ describe("deterministic replay executor", () => {
   });
 
   it("fails before browser execution when invocation inputs are invalid", async () => {
-    const capability = await loadCapabilityArtifact("member.get-savings-balance");
+    const capability = await loadCapabilityArtifact("member.get-account-balances");
     const summary = await replayCapability({
       capability,
       inputs: {

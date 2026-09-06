@@ -7,10 +7,10 @@ function validArtifact(): CapabilityArtifactInput {
   return {
     schemaVersion: "1.0",
     capability: {
-      id: "member.get-savings-balance",
+      id: "member.get-account-balances",
       version: "1.0.0",
-      name: "Get savings balance",
-      description: "Look up a fictional member and return their current savings balance.",
+      name: "Get account balances",
+      description: "Look up a fictional member and return every available account balance.",
       status: "draft"
     },
     targetApplication: {
@@ -33,10 +33,10 @@ function validArtifact(): CapabilityArtifactInput {
       }
     },
     outputs: {
-      balance: {
-        type: "money",
+      accountBalances: {
+        type: "accountBalances",
         required: true,
-        description: "Current savings balance."
+        description: "Available account balances for the member."
       }
     },
     outcomes: [
@@ -106,30 +106,28 @@ function validArtifact(): CapabilityArtifactInput {
         }
       },
       {
-        id: "extract-savings-balance",
+        id: "extract-account-balances",
         action: "extract",
         target: {
-          description: "Savings balance cell",
+          description: "Accounts table with all available balances",
           primary: {
             strategy: "structural",
-            description: "Accounts table cell in the Balance column for the Savings row",
-            containerText: "Accounts",
-            rowText: "Savings",
+            description: "Full Accounts table containing account type, account number, and balance columns",
             columnText: "Balance"
           }
         },
         output: {
-          name: "balance",
-          parseAs: "money"
+          name: "accountBalances",
+          parseAs: "accountBalances"
         }
       }
     ],
     checkpoint: {
-      description: "Savings balance was extracted from the member account table.",
+      description: "Account balances were extracted from the member account table.",
       conditions: [
         {
           type: "output_present",
-          output: "balance"
+          output: "accountBalances"
         }
       ]
     },
@@ -149,7 +147,7 @@ describe("capability artifact schema", () => {
     expect(parsed.schemaVersion).toBe("1.0");
     expect(parsed.capability.version).toBe("1.0.0");
     expect(parsed.inputs.memberId?.type).toBe("string");
-    expect(parsed.outputs.balance?.type).toBe("money");
+    expect(parsed.outputs.accountBalances?.type).toBe("accountBalances");
     expect(parsed.steps[1]?.target?.primary.strategy).toBe("label");
   });
 
@@ -180,7 +178,7 @@ describe("capability artifact schema", () => {
 
   it("rejects an unknown output type", () => {
     const artifact = validArtifact();
-    artifact.outputs.balance = {
+    artifact.outputs.accountBalances = {
       type: "date",
       required: true
     } as never;

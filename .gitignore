@@ -15,6 +15,7 @@ test-results/
 .env
 .env.local
 *.log
+demo-app/state.json
 
 # Evidence can contain screenshots/traces generated during local runs.
 # Keep curated evidence intentionally by force-adding specific files when needed.
@@ -27,4 +28,3 @@ evidence/**/*.png
 Thumbs.db
 .idea/
 .vscode/
-

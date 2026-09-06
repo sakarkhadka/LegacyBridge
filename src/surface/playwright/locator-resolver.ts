@@ -228,13 +228,39 @@ async function structuralCandidateInFrame(frame: Frame, strategy: StructuralLoca
 
     const headerCells = table.locator("tr").first().locator("th,td");
     const headerCount = await headerCells.count();
+    const effectiveColumnText = strategy.columnText ?? inferredColumnText(strategy.description);
     let targetColumn = -1;
     for (let columnIndex = 0; columnIndex < headerCount; columnIndex += 1) {
       const headerText = (await headerCells.nth(columnIndex).innerText()).trim();
-      if (!strategy.columnText || headerText === strategy.columnText) {
+      if (!effectiveColumnText || headerText === effectiveColumnText) {
         targetColumn = columnIndex;
         break;
       }
+    }
+
+    if (!strategy.rowText && !effectiveColumnText) {
+      return {
+        locator: table,
+        matchCount: 1,
+        strategyUsed: "structural",
+        confidence: 0.82
+      };
+    }
+
+    if (!strategy.rowText && effectiveColumnText) {
+      if (targetColumn < 0) {
+        continue;
+      }
+      return {
+        locator: table,
+        matchCount: 1,
+        strategyUsed: "structural",
+        confidence: 0.82
+      };
+    }
+
+    if (effectiveColumnText && targetColumn < 0) {
+      continue;
     }
 
     const rows = table.locator("tr");
@@ -267,4 +293,8 @@ async function structuralCandidateInFrame(frame: Frame, strategy: StructuralLoca
     strategyUsed: "structural",
     confidence: 0
   };
+}
+
+function inferredColumnText(description: string): string | undefined {
+  return /\bbalance\b/i.test(description) ? "Balance" : undefined;
 }

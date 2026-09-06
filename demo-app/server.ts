@@ -2,7 +2,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { URL } from "node:url";
-import { findMember, type Member } from "./data.js";
+import type { Member } from "./data.js";
+import { loadPersistentState, savePersistentState, seededState } from "./state-store.js";
 
 const defaultPort = Number(process.env.PORT ?? 3000);
 
@@ -12,16 +13,30 @@ type RequestContext = {
   url: URL;
   scenario?: string;
   noticeDismissed: boolean;
+  members: Record<string, Member>;
+  persistState: () => void;
 };
 
-export function createDemoAppServer() {
+export function createDemoAppServer(options: {
+  persistState?: boolean;
+  statePath?: string;
+} = {}) {
+  const state = options.persistState
+    ? loadPersistentState(options.statePath)
+    : seededState();
   return createServer(async (request, response) => {
     try {
       const requestUrl = new URL(request.url ?? "/", "http://localhost");
       const context: RequestContext = {
         url: requestUrl,
         scenario: requestUrl.searchParams.get("scenario") ?? undefined,
-        noticeDismissed: requestUrl.searchParams.get("dismissNotice") === "1"
+        noticeDismissed: requestUrl.searchParams.get("dismissNotice") === "1",
+        members: state.members,
+        persistState: () => {
+          if (options.persistState) {
+            savePersistentState(state, options.statePath);
+          }
+        }
       };
 
       if (context.scenario === "slow") {
@@ -67,7 +82,7 @@ function routeRequest(_request: IncomingMessage, response: ServerResponse, conte
 
   const accountsFrameMatch = pathname.match(/^\/servicing\/member\/([^/]+)\/accounts-frame$/);
   if (accountsFrameMatch) {
-    sendAccountsFrame(response, decodeURIComponent(accountsFrameMatch[1] ?? ""));
+    sendAccountsFrame(response, decodeURIComponent(accountsFrameMatch[1] ?? ""), context);
     return;
   }
 
@@ -128,7 +143,7 @@ function sendMemberDetails(response: ServerResponse, memberId: string, context: 
     return;
   }
 
-  const member = findMember(memberId);
+  const member = context.members[memberId];
   if (!member) {
     sendHtml(response, 200, layout("Heritage Core Servicing - Member Not Found", memberNotFoundPage(memberId), noticeOptions(context)));
     return;
@@ -169,8 +184,8 @@ function memberDetailsPage(member: Member, context: RequestContext): string {
   `;
 }
 
-function sendAccountsFrame(response: ServerResponse, memberId: string): void {
-  const member = findMember(memberId);
+function sendAccountsFrame(response: ServerResponse, memberId: string, context: RequestContext): void {
+  const member = context.members[memberId];
   if (!member || member.status !== "active") {
     sendHtml(response, 404, frameLayout("<p>Accounts unavailable.</p>"));
     return;
@@ -201,7 +216,7 @@ function sendAccountsFrame(response: ServerResponse, memberId: string): void {
 }
 
 function sendOpenSubAccountForm(response: ServerResponse, memberId: string, context: RequestContext): void {
-  const member = findMember(memberId);
+  const member = context.members[memberId];
   if (!member || member.status !== "active") {
     sendHtml(response, 404, layout("Open Sub Account", memberNotFoundPage(memberId), noticeOptions(context)));
     return;
@@ -247,7 +262,7 @@ function sendOpenSubAccountForm(response: ServerResponse, memberId: string, cont
 }
 
 function sendReview(response: ServerResponse, memberId: string, context: RequestContext): void {
-  const member = findMember(memberId);
+  const member = context.members[memberId];
   if (!member || member.status !== "active") {
     sendHtml(response, 404, layout("Review", memberNotFoundPage(memberId), noticeOptions(context)));
     return;
@@ -283,11 +298,14 @@ function sendReview(response: ServerResponse, memberId: string, context: Request
 }
 
 function sendConfirmation(response: ServerResponse, memberId: string, context: RequestContext): void {
-  const member = findMember(memberId);
+  const member = context.members[memberId];
   if (!member || member.status !== "active") {
     sendHtml(response, 404, layout("Confirmation", memberNotFoundPage(memberId), noticeOptions(context)));
     return;
   }
+
+  const account = createSubAccount(member, context.url.searchParams.get("accountType") ?? "savings");
+  context.persistState();
 
   sendHtml(
     response,
@@ -296,12 +314,28 @@ function sendConfirmation(response: ServerResponse, memberId: string, context: R
       "Heritage Core Servicing - Confirmation",
       `
         <h2>Sub Account Opening Confirmation</h2>
-        <p>New savings sub-account request accepted for member ${escapeHtml(member.id)}.</p>
+        <p>New ${escapeHtml(account.type)} sub-account created for member ${escapeHtml(member.id)}.</p>
+        <p>New Account Number: ${escapeHtml(account.number)}</p>
+        <p>Opening Balance: ${escapeHtml(account.balance)}</p>
         <p>Reference Number: HC-${escapeHtml(member.id)}-20260904</p>
+        <a class="host-button" href="${withScenario(`/servicing/member/${member.id}`, context)}">Return to Member Details</a>
       `,
       noticeOptions(context)
     )
   );
+}
+
+function createSubAccount(member: Member, accountType: string): Member["accounts"][number] {
+  const normalizedType: Member["accounts"][number]["type"] = accountType === "money-market" ? "Money Market" : "Savings";
+  const prefix = normalizedType === "Money Market" ? "M" : "S";
+  const nextOrdinal = member.accounts.length + 1;
+  const account = {
+    type: normalizedType,
+    number: `${prefix}-${member.id.slice(0, 4)}${nextOrdinal.toString().padStart(2, "0")}`,
+    balance: "$0.00"
+  };
+  member.accounts.push(account);
+  return account;
 }
 
 function memberNotFoundPage(memberId: string): string {
@@ -484,7 +518,7 @@ function delay(ms: number): Promise<void> {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  createDemoAppServer().listen(defaultPort, () => {
+  createDemoAppServer({ persistState: true }).listen(defaultPort, () => {
     console.log(`Heritage Core Servicing running at http://localhost:${defaultPort}/servicing/search`);
   });
 }

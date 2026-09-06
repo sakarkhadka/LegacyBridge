@@ -22,9 +22,10 @@ export function buildDiscoveryContext(options: {
     "Never use selector, css, xpath, id, querySelector, playwright, or locator as a strategy.",
     "For Member Number, prefer target.primary = { strategy: 'label', text: 'Member Number' }.",
     "For the Search submit button, prefer target.primary = { strategy: 'relative', anchorText: 'Member Number', direction: 'below', controlType: 'submit button' }.",
-    "For Savings balance extraction, prefer target.primary = { strategy: 'structural', description: 'Balance cell in the Accounts table for the Savings row', rowText: 'Savings', columnText: 'Balance' }. Do not wrap this in a frame target.",
+    "For account balance extraction, prefer target.primary = { strategy: 'structural', description: 'Full Accounts table containing account type, account number, and balance columns' }. Do not wrap this in a frame target.",
     "If the controls observation shows Member Number already has a value, click Search next instead of filling again.",
-    "Mark goal_complete only when the requested output is visible in the observation or was returned by the immediately previous extraction."
+    "Mark goal_complete only when the requested output is visible in the observation or was returned by the immediately previous extraction.",
+    "For account balance goal_complete outputs, use key accountBalances and copy the exact text returned by the previous extraction. Do not return arrays or objects from discovery."
   ].join("\n");
 
   const userPrompt = JSON.stringify(

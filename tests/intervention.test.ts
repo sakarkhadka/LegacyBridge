@@ -56,7 +56,7 @@ describe("human intervention handoff", () => {
     });
     const intervention = await manager.trigger({
       runId: "test-run",
-      capabilityId: "member.get-savings-balance",
+      capabilityId: "member.get-account-balances",
       currentStepId: "navigate-to-search",
       reason: "SESSION_EXPIRED",
       currentRoute: session.page.url(),

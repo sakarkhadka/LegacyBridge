@@ -36,7 +36,7 @@ describe("evidence recorder", () => {
     const sink = new MemoryEvidenceSink();
     const recorder = new EvidenceRecorder({
       runId: "test-run",
-      capabilityId: "member.get-savings-balance",
+      capabilityId: "member.get-account-balances",
       sensitiveValues: ["54321"],
       sink
     });
@@ -53,7 +53,7 @@ describe("evidence recorder", () => {
   });
 
   it("records replay policy, target, action, checkpoint, and zero-LLM evidence", async () => {
-    const capability = await loadCapabilityArtifact("member.get-savings-balance");
+    const capability = await loadCapabilityArtifact("member.get-account-balances");
     const sink = new MemoryEvidenceSink();
     const recorder = new EvidenceRecorder({
       runId: "replay-evidence-test",

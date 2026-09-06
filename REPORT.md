@@ -12,7 +12,7 @@ Trade-off: The implementation has more explicit contracts than a quick Playwrigh
 
 Decision: The capability artifact is a YAML document with identity, version, lifecycle status, application fingerprint, typed inputs, typed outputs, business outcomes, ordered steps, semantic target descriptors, waits, recovery metadata, checkpoint, policy, and optional validation metadata.
 
-Why: A calling agent and a human reviewer should understand what the capability does without reading browser code. Inputs such as `memberId` are parameterized and marked sensitive. Outputs such as `balance` are typed as money. Targets use semantic strategies like label, accessible role, relative position, and structural table lookup rather than raw selectors.
+Why: A calling agent and a human reviewer should understand what the capability does without reading browser code. Inputs such as `memberId` are parameterized and marked sensitive. Outputs such as `accountBalances` are typed as structured account balance rows. Targets use semantic strategies like label, accessible role, relative position, and structural table lookup rather than raw selectors.
 
 Trade-off: The artifact schema is narrower than a universal RPA model. It intentionally supports the locators and actions needed for this vertical slice while leaving extension points for desktop accessibility or vision-coordinate adapters.
 
@@ -50,7 +50,7 @@ Trade-off: This is not production compliance tooling. It does not implement real
 
 ## 7. Cuts
 
-Decision: The project focuses on one high-quality vertical slice: member savings balance lookup on a local legacy-style servicing app.
+Decision: The project focuses on one high-quality vertical slice: member account balances lookup on a local legacy-style servicing app.
 
 Why: The assignment rewards clear boundaries, correct replay semantics, error handling, safety, handoff, and evidence more than infrastructure breadth.
 

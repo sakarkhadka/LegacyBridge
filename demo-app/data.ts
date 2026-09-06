@@ -4,7 +4,7 @@ export type Member = {
   status: "active" | "restricted";
   branch: string;
   accounts: Array<{
-    type: "Savings" | "Checking" | "Certificate";
+    type: "Savings" | "Checking" | "Money Market";
     number: string;
     balance: string;
   }>;
@@ -41,8 +41,8 @@ export const members: Record<string, Member> = {
         balance: "$8,044.19"
       },
       {
-        type: "Certificate",
-        number: "D-119004",
+        type: "Checking",
+        number: "C-119004",
         balance: "$12,000.00"
       }
     ]
@@ -60,3 +60,6 @@ export function findMember(memberId: string): Member | undefined {
   return members[memberId];
 }
 
+export function createMemberStore(): Record<string, Member> {
+  return structuredClone(members);
+}

@@ -5,7 +5,8 @@ import { parseCapabilityArtifact } from "./schema.js";
 import type { CapabilityArtifact } from "./types.js";
 
 const capabilityFiles: Record<string, string> = {
-  "member.get-savings-balance": "member-get-savings-balance.v1.yaml"
+  "member.get-account-balances": "member-get-account-balances.v1.yaml",
+  "member.get-savings-balance": "member-get-account-balances.v1.yaml"
 };
 
 export async function loadCapabilityArtifact(capabilityId: string): Promise<CapabilityArtifact> {

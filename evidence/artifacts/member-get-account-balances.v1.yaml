@@ -1,9 +1,9 @@
 schemaVersion: "1.0"
 capability:
-  id: member.get-savings-balance.generated
-  version: 0.1.0
-  name: Get savings balance
-  description: Draft generated from discovery for deterministic replay of a synthetic member savings lookup.
+  id: member.get-account-balances
+  version: 1.0.0
+  name: Get account balances
+  description: Look up a synthetic member and return every available account balance.
   status: draft
 targetApplication:
   vendor: heritage-core
@@ -26,10 +26,10 @@ inputs:
     description: Synthetic member number.
     pattern: ^[0-9]{5}$
 outputs:
-  balance:
-    type: money
+  accountBalances:
+    type: accountBalances
     required: true
-    description: Current savings balance.
+    description: Available account balances for the member.
 outcomes:
   - code: MEMBER_NOT_FOUND
     description: No member exists for the supplied member number.
@@ -57,7 +57,7 @@ steps:
   - id: enter-member-id
     action: fill
     target:
-      description: Member Number field
+      description: Member Number input
       primary:
         strategy: label
         text: Member Number
@@ -88,30 +88,22 @@ steps:
       retries:
         maxAttempts: 1
         backoffMs: 250
-  - id: extract-savings-balance
+  - id: extract-account-balances
     action: extract
     target:
-      description: Savings balance cell
+      description: Accounts table with all available balances
       primary:
         strategy: structural
-        description: Balance cell in the Accounts table for the Savings row
-        rowText: Savings
+        description: Full Accounts table containing account type, account number, and balance columns
         columnText: Balance
     output:
-      name: balance
-      parseAs: money
-      source:
-        description: Savings balance cell
-        primary:
-          strategy: structural
-          description: Balance cell in the Accounts table for the Savings row
-          rowText: Savings
-          columnText: Balance
+      name: accountBalances
+      parseAs: accountBalances
 checkpoint:
-  description: Savings balance was extracted from the member account table.
+  description: Account balances were extracted from the member account table.
   conditions:
     - type: output_present
-      output: balance
+      output: accountBalances
 policy:
   allowedOrigins:
     - "{{origin}}"
@@ -126,3 +118,10 @@ policy:
     - extract
     - wait
   risk: READ_ONLY
+validation:
+  runs: 5
+  successes: 5
+  failures: 0
+  primaryLocatorUsage: 1
+  fallbackLocatorUsage: 0
+  lastValidatedAt: 2026-09-06T01:07:42.796Z

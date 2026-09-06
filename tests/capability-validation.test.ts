@@ -45,13 +45,13 @@ function cloneAsStatus(capability: CapabilityArtifact, status: CapabilityArtifac
 
 describe("capability validation and production approval gate", () => {
   it("rejects draft capabilities from the production catalog", async () => {
-    const capability = await loadCapabilityArtifact("member.get-savings-balance");
+    const capability = await loadCapabilityArtifact("member.get-account-balances");
 
     expect(() => assertProductionInvokable(capability)).toThrow("production catalog requires approved or active");
   });
 
   it("allows approved capabilities through the production catalog", async () => {
-    const draft = await loadCapabilityArtifact("member.get-savings-balance");
+    const draft = await loadCapabilityArtifact("member.get-account-balances");
     const approved = cloneAsStatus(draft, "approved");
 
     const result = await invokeProductionCapability({
@@ -67,7 +67,7 @@ describe("capability validation and production approval gate", () => {
   }, 30_000);
 
   it("summarizes multi-run replay stability and produces a schema-valid validation block", async () => {
-    const capability = await loadCapabilityArtifact("member.get-savings-balance");
+    const capability = await loadCapabilityArtifact("member.get-account-balances");
     const report = await validateCapabilityStability({
       capability,
       origin,
@@ -78,7 +78,7 @@ describe("capability validation and production approval gate", () => {
     });
 
     expect(report).toMatchObject({
-      capabilityId: "member.get-savings-balance",
+      capabilityId: "member.get-account-balances",
       version: "1.0.0",
       runs: 3,
       successes: 3,

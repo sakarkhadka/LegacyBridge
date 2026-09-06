@@ -49,7 +49,7 @@ function withStatus(
 
 describe("agent-facing capability catalog", () => {
   it("returns public manifests without replay internals", async () => {
-    const capability = withStatus(await loadCapabilityArtifact("member.get-savings-balance"), "approved");
+    const capability = withStatus(await loadCapabilityArtifact("member.get-account-balances"), "approved");
     catalogServer = await createCapabilityCatalogServer({
       capabilities: [capability],
       replayOrigin: origin
@@ -61,8 +61,8 @@ describe("agent-facing capability catalog", () => {
     expect(response.status).toBe(200);
     expect(body).toEqual([
       {
-        name: "member.get-savings-balance",
-        description: "Retrieve a member's current savings balance.",
+        name: "member.get-account-balances",
+        description: "Retrieve every available account balance for a member.",
         inputs: {
           memberId: {
             type: "string",
@@ -72,10 +72,10 @@ describe("agent-facing capability catalog", () => {
           }
         },
         outputs: {
-          balance: {
-            type: "money",
+          accountBalances: {
+            type: "accountBalances",
             required: true,
-            description: "Current savings balance."
+            description: "Available account balances for the member."
           }
         },
         risk: "READ_ONLY"
@@ -88,13 +88,13 @@ describe("agent-facing capability catalog", () => {
   });
 
   it("invokes an approved capability without requiring caller knowledge of UI details", async () => {
-    const capability = withStatus(await loadCapabilityArtifact("member.get-savings-balance"), "approved");
+    const capability = withStatus(await loadCapabilityArtifact("member.get-account-balances"), "approved");
     catalogServer = await createCapabilityCatalogServer({
       capabilities: [capability],
       replayOrigin: origin
     });
 
-    const response = await fetch(`${catalogServer.url}/capabilities/member.get-savings-balance/invoke`, {
+    const response = await fetch(`${catalogServer.url}/capabilities/member.get-account-balances/invoke`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -114,23 +114,35 @@ describe("agent-facing capability catalog", () => {
     expect(response.status).toBe(200);
     expect(body.llmDecisionCalls).toBe(0);
     expect(body.result.status).toBe("success");
-    expect(body.result.outputs?.balance).toEqual({
-      type: "money",
-      value: {
-        amount: 8044.19,
-        currency: "USD"
-      }
+    expect(body.result.outputs?.accountBalances).toEqual({
+      type: "accountBalances",
+      value: [
+        {
+          accountType: "Savings",
+          balance: {
+            amount: 8044.19,
+            currency: "USD"
+          }
+        },
+        {
+          accountType: "Checking",
+          balance: {
+            amount: 12000,
+            currency: "USD"
+          }
+        }
+      ]
     });
   }, 30_000);
 
   it("blocks draft capability invocation through the catalog", async () => {
-    const capability = await loadCapabilityArtifact("member.get-savings-balance");
+    const capability = await loadCapabilityArtifact("member.get-account-balances");
     catalogServer = await createCapabilityCatalogServer({
       capabilities: [capability],
       replayOrigin: origin
     });
 
-    const response = await fetch(`${catalogServer.url}/capabilities/member.get-savings-balance/invoke`, {
+    const response = await fetch(`${catalogServer.url}/capabilities/member.get-account-balances/invoke`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"

@@ -1,7 +1,7 @@
 import type { Page } from "playwright";
 import { copyFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { createDemoAppServer } from "../../demo-app/server.js";
+import { createDemoAppServer, type DemoAppServer } from "../../demo-app/server.js";
 import { loadCapabilityArtifact, loadCapabilityArtifactFromPath, saveCapabilityArtifact } from "../artifact/loader.js";
 import type { CapabilityArtifact } from "../artifact/types.js";
 import { createCapabilityCatalogServer } from "../catalog/catalog-server.js";
@@ -60,8 +60,8 @@ function printHelp(): void {
   console.log("Commands: catalog, compile-discovery, discover, evidence, replay, handoff, validate-capability");
   console.log("");
   console.log("Replay example:");
-  console.log("  npm run replay -- --capability member.get-savings-balance --memberId 54321");
-  console.log("  npm run replay -- --capabilityPath capabilities/generated/member-get-savings-balance.draft.yaml --memberId 54321");
+  console.log("  npm run replay -- --capability member.get-account-balances --memberId 54321");
+  console.log("  npm run replay -- --capabilityPath capabilities/generated/member-get-account-balances.draft.yaml --memberId 54321");
   console.log("");
   console.log("Discovery example:");
   console.log("  npm run demo:discover -- --scripted");
@@ -74,7 +74,7 @@ function printHelp(): void {
   console.log("  npm run demo:evidence");
   console.log("");
   console.log("Validation example:");
-  console.log("  npm run validate-capability -- member.get-savings-balance --runs 5");
+  console.log("  npm run validate-capability -- member.get-account-balances --runs 5");
   console.log("");
   console.log("Catalog example:");
   console.log("  npm run demo:catalog");
@@ -84,15 +84,15 @@ async function runDiscoverCommand(args: string[]): Promise<void> {
   const options = parseArgs(args);
   const port = Number(options.port ?? "3103");
   const origin = `http://127.0.0.1:${port}`;
-  const goal = options.goal ?? "Look up member 12345 and return their current savings balance.";
+  const goal = options.goal ?? "Look up member 12345 and return every available account balance.";
   const evidence = options.evidencePath
     ? await createJsonlRecorder(options.evidencePath, {
       runId: `discovery-${Date.now()}`,
-      capabilityId: "member.get-savings-balance",
+      capabilityId: "member.get-account-balances",
       sensitiveValues: [extractMemberIdFromGoal(goal)].filter((value): value is string => Boolean(value))
     })
     : undefined;
-  const server = createDemoAppServer();
+  const server = createCliDemoAppServer(options);
 
   await new Promise<void>((resolve) => {
     server.listen(port, "127.0.0.1", resolve);
@@ -103,13 +103,13 @@ async function runDiscoverCommand(args: string[]): Promise<void> {
   });
 
   try {
-    const capability = await loadCapabilityArtifact("member.get-savings-balance");
+    const capability = await loadCapabilityArtifact("member.get-account-balances");
     const surface = new PlaywrightSurfaceAdapter({
       page: session.page,
       sessionId: session.id
     });
     const model = options.scripted === "true" || !process.env.OPENAI_API_KEY
-      ? new ScriptedDiscoveryModel(scriptedSavingsLookupDecisions(origin))
+      ? new ScriptedDiscoveryModel(scriptedAccountBalanceLookupDecisions(origin))
       : new OpenAIDiscoveryModel({
         model: options.model
       });
@@ -147,7 +147,7 @@ function extractMemberIdFromGoal(goal: string): string | undefined {
 
 async function runReplayCommand(args: string[]): Promise<void> {
   const options = parseArgs(args);
-  const capabilityId = options.capability ?? "member.get-savings-balance";
+  const capabilityId = options.capability ?? "member.get-account-balances";
   const memberId = options.memberId ?? "54321";
   const evidence = options.evidencePath
     ? await createJsonlRecorder(options.evidencePath, {
@@ -158,7 +158,7 @@ async function runReplayCommand(args: string[]): Promise<void> {
     : undefined;
   const port = Number(options.port ?? "3101");
   const origin = `http://127.0.0.1:${port}`;
-  const server = createDemoAppServer();
+  const server = createCliDemoAppServer(options);
 
   await new Promise<void>((resolve) => {
     server.listen(port, "127.0.0.1", resolve);
@@ -197,9 +197,9 @@ async function runCompileDiscoveryCommand(args: string[]): Promise<void> {
   const options = parseArgs(args);
   const port = Number(options.port ?? "3104");
   const origin = `http://127.0.0.1:${port}`;
-  const goal = options.goal ?? "Look up member 12345 and return their current savings balance.";
-  const outputPath = options.output ?? "capabilities/generated/member-get-savings-balance.draft.yaml";
-  const server = createDemoAppServer();
+  const goal = options.goal ?? "Look up member 12345 and return every available account balance.";
+  const outputPath = options.output ?? "capabilities/generated/member-get-account-balances.draft.yaml";
+  const server = createCliDemoAppServer(options);
 
   await new Promise<void>((resolve) => {
     server.listen(port, "127.0.0.1", resolve);
@@ -210,12 +210,12 @@ async function runCompileDiscoveryCommand(args: string[]): Promise<void> {
   });
 
   try {
-    const policyCapability = await loadCapabilityArtifact("member.get-savings-balance");
+    const policyCapability = await loadCapabilityArtifact("member.get-account-balances");
     const surface = new PlaywrightSurfaceAdapter({
       page: session.page,
       sessionId: session.id
     });
-    const model = new ScriptedDiscoveryModel(scriptedSavingsLookupDecisions(origin));
+    const model = new ScriptedDiscoveryModel(scriptedAccountBalanceLookupDecisions(origin));
     const discovery = await runDiscovery({
       goal,
       entrypoint: `${origin}/servicing/search`,
@@ -272,11 +272,11 @@ async function runHandoffCommand(args: string[]): Promise<void> {
   const evidence = options.evidencePath
     ? await createJsonlRecorder(options.evidencePath, {
       runId: `handoff-${Date.now()}`,
-      capabilityId: "member.get-savings-balance",
+      capabilityId: "member.get-account-balances",
       sensitiveValues: [memberId]
     })
     : undefined;
-  const server = createDemoAppServer();
+  const server = createCliDemoAppServer(options);
 
   await new Promise<void>((resolve) => {
     server.listen(port, "127.0.0.1", resolve);
@@ -310,7 +310,7 @@ async function runHandoffCommand(args: string[]): Promise<void> {
 
     const intervention = await manager.trigger({
       runId: `handoff-${Date.now()}`,
-      capabilityId: "member.get-savings-balance",
+      capabilityId: "member.get-account-balances",
       currentStepId: "navigate-to-search",
       reason: "SESSION_EXPIRED",
       currentRoute: session.page.url(),
@@ -368,7 +368,7 @@ async function runHandoffCommand(args: string[]): Promise<void> {
     });
 
     manager.assertAutomationMayAct();
-    const balance = await continueSavingsLookup({
+    const accountBalances = await continueAccountBalanceLookup({
       adapter,
       page: session.page,
       memberId
@@ -378,7 +378,7 @@ async function runHandoffCommand(args: string[]): Promise<void> {
       payload: {
         sameSessionRetained: session.id === adapter.getSession().id,
         finalAutomationResult: {
-          balance
+          accountBalances
         }
       }
     });
@@ -398,7 +398,7 @@ async function runHandoffCommand(args: string[]): Promise<void> {
       resume,
       evidence: manager.evidence(),
       finalAutomationResult: {
-        balance
+        accountBalances
       }
     }, [memberId]), null, 2));
   } finally {
@@ -425,7 +425,8 @@ async function runEvidenceCommand(args: string[]): Promise<void> {
     "--port",
     String(basePort),
     "--evidencePath",
-    "evidence/discovery-success/run.jsonl"
+    "evidence/discovery-success/run.jsonl",
+    "--ephemeralState"
   ]);
   await runReplayCommand([
     "--port",
@@ -433,7 +434,8 @@ async function runEvidenceCommand(args: string[]): Promise<void> {
     "--memberId",
     "54321",
     "--evidencePath",
-    "evidence/replay-success/run.jsonl"
+    "evidence/replay-success/run.jsonl",
+    "--ephemeralState"
   ]);
   await runReplayCommand([
     "--port",
@@ -441,7 +443,8 @@ async function runEvidenceCommand(args: string[]): Promise<void> {
     "--memberId",
     "00000",
     "--evidencePath",
-    "evidence/replay-business-outcome/run.jsonl"
+    "evidence/replay-business-outcome/run.jsonl",
+    "--ephemeralState"
   ]);
   await runReplayCommand([
     "--port",
@@ -451,7 +454,8 @@ async function runEvidenceCommand(args: string[]): Promise<void> {
     "--scenario",
     "interstitial",
     "--evidencePath",
-    "evidence/replay-recovery/run.jsonl"
+    "evidence/replay-recovery/run.jsonl",
+    "--ephemeralState"
   ]);
   await runReplayCommand([
     "--port",
@@ -459,7 +463,8 @@ async function runEvidenceCommand(args: string[]): Promise<void> {
     "--memberId",
     "88888",
     "--evidencePath",
-    "evidence/replay-failure/run.jsonl"
+    "evidence/replay-failure/run.jsonl",
+    "--ephemeralState"
   ]);
   await runHandoffCommand([
     "--port",
@@ -467,10 +472,11 @@ async function runEvidenceCommand(args: string[]): Promise<void> {
     "--memberId",
     "54321",
     "--evidencePath",
-    "evidence/human-handoff/run.jsonl"
+    "evidence/human-handoff/run.jsonl",
+    "--ephemeralState"
   ]);
   await mkdir("evidence/artifacts", { recursive: true });
-  await copyFile("capabilities/member-get-savings-balance.v1.yaml", "evidence/artifacts/member-get-savings-balance.v1.yaml");
+  await copyFile("capabilities/member-get-account-balances.v1.yaml", "evidence/artifacts/member-get-account-balances.v1.yaml");
 
   console.log(JSON.stringify({
     status: "evidence_generated",
@@ -481,7 +487,7 @@ async function runEvidenceCommand(args: string[]): Promise<void> {
       "evidence/replay-recovery/run.jsonl",
       "evidence/replay-failure/run.jsonl",
       "evidence/human-handoff/run.jsonl",
-      "evidence/artifacts/member-get-savings-balance.v1.yaml"
+      "evidence/artifacts/member-get-account-balances.v1.yaml"
     ]
   }, null, 2));
 }
@@ -489,12 +495,12 @@ async function runEvidenceCommand(args: string[]): Promise<void> {
 async function runValidateCapabilityCommand(args: string[]): Promise<void> {
   const positional = args.filter((arg) => !arg.startsWith("--") && !args[args.indexOf(arg) - 1]?.startsWith("--"));
   const options = parseArgs(args);
-  const capabilityId = positional[0] ?? options.capability ?? "member.get-savings-balance";
+  const capabilityId = positional[0] ?? options.capability ?? "member.get-account-balances";
   const runs = Number(options.runs ?? "5");
   const memberId = options.memberId ?? "54321";
   const port = Number(options.port ?? "3106");
   const origin = `http://127.0.0.1:${port}`;
-  const server = createDemoAppServer();
+  const server = createCliDemoAppServer(options);
 
   await new Promise<void>((resolve) => {
     server.listen(port, "127.0.0.1", resolve);
@@ -553,13 +559,13 @@ async function runCatalogCommand(args: string[]): Promise<void> {
   const catalogPort = options.catalogPort ? Number(options.catalogPort) : undefined;
   const memberId = options.memberId ?? "54321";
   const origin = `http://127.0.0.1:${demoPort}`;
-  const demoServer = createDemoAppServer();
+  const demoServer = createCliDemoAppServer(options);
 
   await new Promise<void>((resolve) => {
     demoServer.listen(demoPort, "127.0.0.1", resolve);
   });
 
-  const loaded = await loadCapabilityArtifact("member.get-savings-balance");
+  const loaded = await loadCapabilityArtifact("member.get-account-balances");
   const capability = options.approved === "false" ? loaded : withCapabilityStatus(loaded, "approved");
   const catalog = await createCapabilityCatalogServer({
     capabilities: [capability],
@@ -570,7 +576,7 @@ async function runCatalogCommand(args: string[]): Promise<void> {
   try {
     if (options.smoke !== "false") {
       const capabilities = await fetchJson(`${catalog.url}/capabilities`);
-      const invocation = await fetchJson(`${catalog.url}/capabilities/member.get-savings-balance/invoke`, {
+      const invocation = await fetchJson(`${catalog.url}/capabilities/member.get-account-balances/invoke`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -624,10 +630,17 @@ async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
 }
 
 function defaultCapabilityPath(capabilityId: string): string {
-  if (capabilityId === "member.get-savings-balance") {
-    return join("capabilities", "member-get-savings-balance.v1.yaml");
+  if (capabilityId === "member.get-account-balances" || capabilityId === "member.get-savings-balance") {
+    return join("capabilities", "member-get-account-balances.v1.yaml");
   }
   return join("capabilities", `${capabilityId}.yaml`);
+}
+
+function createCliDemoAppServer(options: Record<string, string>): DemoAppServer {
+  return createDemoAppServer({
+    persistState: options.ephemeralState !== "true",
+    statePath: options.statePath
+  });
 }
 
 function formatPercent(value: number): string {
@@ -655,7 +668,7 @@ function captureBlockedAutomation(manager: InterventionManager): string {
   }
 }
 
-async function continueSavingsLookup(options: {
+async function continueAccountBalanceLookup(options: {
   adapter: PlaywrightSurfaceAdapter;
   page: Page;
   memberId: string;
@@ -695,19 +708,18 @@ async function continueSavingsLookup(options: {
     outputs: {}
   });
 
-  const balanceCell = await adapter.locate({
-    description: "Savings balance cell",
+  const balancesTable = await adapter.locate({
+    description: "Accounts table with all available balances",
     primary: {
       strategy: "structural",
-      description: "Balance cell in the Accounts table for the Savings row",
-      rowText: "Savings",
+      description: "Full Accounts table containing account type, account number, and balance columns",
       columnText: "Balance"
     }
   });
   const extracted = await adapter.act({
     type: "extract"
-  }, balanceCell);
-  return extracted.observed ? parseOutput(extracted.observed, "money") : undefined;
+  }, balancesTable);
+  return extracted.observed ? parseOutput(extracted.observed, "accountBalances") : undefined;
 }
 
 function parseArgs(args: string[]): Record<string, string> {
@@ -729,7 +741,7 @@ function parseArgs(args: string[]): Record<string, string> {
   return parsed;
 }
 
-function scriptedSavingsLookupDecisions(origin: string) {
+function scriptedAccountBalanceLookupDecisions(origin: string) {
   return [
     {
       type: "act" as const,
@@ -778,15 +790,14 @@ function scriptedSavingsLookupDecisions(origin: string) {
     },
     {
       type: "act" as const,
-      reason: "The accounts frame is visible and contains the Savings row.",
+      reason: "The accounts frame is visible and contains the balances table.",
       action: {
         type: "extract" as const,
         target: {
-          description: "Savings balance cell",
+          description: "Accounts table with all available balances",
           primary: {
             strategy: "structural" as const,
-            description: "Balance cell in the Accounts table for the Savings row",
-            rowText: "Savings",
+            description: "Full Accounts table containing account type, account number, and balance columns",
             columnText: "Balance"
           }
         }
@@ -794,9 +805,9 @@ function scriptedSavingsLookupDecisions(origin: string) {
     },
     {
       type: "goal_complete" as const,
-      reason: "The Savings balance has been extracted from the member account table.",
+      reason: "The account balances have been extracted from the member account table.",
       outputs: {
-        balance: "$3,182.46"
+        accountBalances: "Account Type\tAccount Number\tBalance\tAction\nSavings\tS-100234\t$3,182.46\tDetails\nChecking\tC-442910\t$842.10\tDetails"
       }
     }
   ];

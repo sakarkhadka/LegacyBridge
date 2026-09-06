@@ -216,7 +216,21 @@ function goalCompletionIsVerified(
 
   const visibleText = observation.visibleText.join("\n");
   const previousResult = JSON.stringify(previousActionResult ?? {});
-  return claimedOutputs.every((output) => visibleText.includes(output) || previousResult.includes(output));
+  return claimedOutputs.every((output) =>
+    includesNormalized(visibleText, output) ||
+    includesNormalized(previousResult, output) ||
+    claimedMoneyValuesArePresent(output, `${visibleText}\n${previousResult}`)
+  );
+}
+
+function includesNormalized(haystack: string, needle: string): boolean {
+  const normalize = (value: string) => value.replace(/\\[tnr]/g, " ").replace(/\s+/g, " ").trim();
+  return normalize(haystack).includes(normalize(needle));
+}
+
+function claimedMoneyValuesArePresent(claimedOutput: string, sourceText: string): boolean {
+  const claimedAmounts = claimedOutput.match(/\$[0-9,]+(?:\.[0-9]{2})?/g) ?? [];
+  return claimedAmounts.length > 0 && claimedAmounts.every((amount) => sourceText.includes(amount));
 }
 
 async function executeDecision(surface: SurfaceAdapter, decision: Extract<AgentDecision, { type: "act" }>) {
