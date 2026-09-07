@@ -1,5 +1,6 @@
 import type { Page } from "playwright";
 import type { CapabilityArtifact, CapabilityStep, ValueSource } from "../artifact/types.js";
+import type { RuntimeAuthProvider } from "../auth/types.js";
 import type { EvidenceRecorder } from "../evidence/recorder.js";
 import { policyConfigFromCapability } from "../policy/config.js";
 import { PolicyEngine, policyRequestForUrl } from "../policy/policy-engine.js";
@@ -25,7 +26,22 @@ export type ReplayInvocation = {
   scenario?: string;
   headless?: boolean;
   approvalGranted?: boolean;
+  approvalHandler?: (request: ReplayApprovalRequest) => Promise<ReplayApprovalDecision>;
+  authProvider?: RuntimeAuthProvider;
   evidence?: EvidenceRecorder;
+};
+
+export type ReplayApprovalDecision = boolean | {
+  approved: boolean;
+  completedByHuman?: boolean;
+};
+
+export type ReplayApprovalRequest = {
+  capability: CapabilityArtifact;
+  step: CapabilityStep;
+  page: Page;
+  adapter: PlaywrightSurfaceAdapter;
+  reason: string;
 };
 
 export type ReplaySummary = {
@@ -62,14 +78,43 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
       adapter,
       outputs
     };
+    const authResult = invocation.authProvider
+      ? await invocation.authProvider.authenticate({
+        origin: invocation.origin,
+        page: session.page,
+        capability: invocation.capability,
+        inputs: invocation.inputs,
+        evidence: invocation.evidence
+      })
+      : undefined;
+    const authorizationFailure = authResult && !runtimeRoleAllowsCapability(authResult.role, invocation.capability)
+      ? redactExecutionResult(failure({
+        class: "POLICY_VIOLATION",
+        expected: "runtime user role permits capability risk",
+        observed: `runtime role ${authResult.role ?? "unknown"} cannot execute ${invocation.capability.policy.risk}`
+      }), sensitiveValues)
+      : undefined;
     await invocation.evidence?.record("run_started", {
       payload: {
         mode: "replay",
         origin: invocation.origin,
         scenario: invocation.scenario,
-        llmDecisionCalls: 0
+        llmDecisionCalls: 0,
+        auth: authResult
       }
     });
+    if (authorizationFailure) {
+      await invocation.evidence?.record("run_failed", {
+        payload: {
+          result: authorizationFailure
+        }
+      });
+      return {
+        result: authorizationFailure,
+        llmDecisionCalls: 0,
+        recoveries
+      };
+    }
 
     for (const step of invocation.capability.steps) {
       await invocation.evidence?.record("step_started", {
@@ -78,21 +123,76 @@ export async function replayCapability(invocation: ReplayInvocation): Promise<Re
           action: step.action
         }
       });
-      const policyFailure = await precheckStepPolicy({
+      const policyPrecheck = await precheckStepPolicy({
         capability: invocation.capability,
         step,
         invocation,
         page: session.page,
+        adapter,
         policyEngine
       });
-      if (policyFailure) {
+      if (policyPrecheck?.status === "failure") {
         await invocation.evidence?.record("run_failed", {
           stepId: step.id,
           payload: {
-            result: policyFailure
+            result: policyPrecheck
           }
         });
-        return summarize(policyFailure, recoveries, sensitiveValues);
+        return summarize(policyPrecheck, recoveries, sensitiveValues);
+      }
+      if (policyPrecheck?.status === "skip_step") {
+        await invocation.evidence?.record("action_completed", {
+          stepId: step.id,
+          payload: {
+            action: {
+              ok: true,
+              skipped: true,
+              reason: "human completed approval-required action"
+            }
+          }
+        });
+        const waitedForHumanStep = await waitForDefinition(step.wait, context);
+        if (!waitedForHumanStep) {
+          const result = redactExecutionResult(failure({
+              class: "LOAD_TIMEOUT",
+              stepId: step.id,
+              expected: `human-completed wait condition ${step.wait?.type ?? "unknown"} to pass`,
+              observed: await observedState(session.page),
+              recoverable: Boolean(step.recovery?.retries)
+            }), sensitiveValues);
+          await invocation.evidence?.record("run_failed", {
+            stepId: step.id,
+            payload: {
+              result
+            }
+          });
+          return {
+            result,
+            llmDecisionCalls: 0,
+            recoveries
+          };
+        }
+        const humanStepPostconditionsPass = await conditionsPass(step.postcondition, context);
+        if (!humanStepPostconditionsPass) {
+          const result = redactExecutionResult(failure({
+              class: "POSTCONDITION_FAILED",
+              stepId: step.id,
+              expected: "human-completed step postconditions pass",
+              observed: await observedState(session.page)
+            }), sensitiveValues);
+          await invocation.evidence?.record("run_failed", {
+            stepId: step.id,
+            payload: {
+              result
+            }
+          });
+          return {
+            result,
+            llmDecisionCalls: 0,
+            recoveries
+          };
+        }
+        continue;
       }
 
       const preconditionsPass = await conditionsPass(step.precondition, context);
@@ -494,14 +594,28 @@ function validateInputs(capability: CapabilityArtifact, inputs: Record<string, u
   return undefined;
 }
 
+function runtimeRoleAllowsCapability(role: string | undefined, capability: CapabilityArtifact): boolean {
+  if (!role) {
+    return true;
+  }
+  if (role === "READ_WRITE") {
+    return true;
+  }
+  if (role === "READ_ONLY") {
+    return capability.policy.risk === "READ_ONLY";
+  }
+  return true;
+}
+
 async function precheckStepPolicy(options: {
   capability: CapabilityArtifact;
   step: CapabilityStep;
   invocation: ReplayInvocation;
   page: Page;
+  adapter: PlaywrightSurfaceAdapter;
   policyEngine: PolicyEngine;
-}): Promise<ExecutionResult | undefined> {
-  const { capability, step, invocation, page, policyEngine } = options;
+}): Promise<ExecutionResult | { status: "skip_step" } | undefined> {
+  const { adapter, capability, step, invocation, page, policyEngine } = options;
   const actionRisk = classifyStepRisk(step, capability.policy.risk);
   const approvalGranted = invocation.approvalGranted ?? false;
   let url: URL;
@@ -539,6 +653,40 @@ async function precheckStepPolicy(options: {
 
   if (decision.status === "allowed") {
     return undefined;
+  }
+
+  if (decision.status === "requires_human_approval" && invocation.approvalHandler) {
+    await invocation.evidence?.record("intervention_created", {
+      stepId: step.id,
+      payload: {
+        reason: "RISK_APPROVAL_REQUIRED",
+        actionRisk,
+        route: url.pathname
+      }
+    });
+    const approvalDecision = await invocation.approvalHandler({
+      capability,
+      step,
+      page,
+      adapter,
+      reason: decision.reason
+    });
+    const approved = typeof approvalDecision === "boolean" ? approvalDecision : approvalDecision.approved;
+    const completedByHuman = typeof approvalDecision === "boolean" ? false : approvalDecision.completedByHuman === true;
+    await invocation.evidence?.record("human_action", {
+      stepId: step.id,
+      payload: {
+        action: approved ? (completedByHuman ? "completed_by_human" : "approved") : "not_approved"
+      }
+    });
+    if (approved) {
+      if (completedByHuman) {
+        return {
+          status: "skip_step"
+        };
+      }
+      return undefined;
+    }
   }
 
   return failure({

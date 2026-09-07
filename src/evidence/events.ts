@@ -6,6 +6,7 @@ import type { ActionResult, ResolvedTarget, SurfaceObservation } from "../surfac
 
 export type EvidenceEventName =
   | "run_started"
+  | "authentication_completed"
   | "observation_captured"
   | "model_decision"
   | "policy_checked"

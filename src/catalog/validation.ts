@@ -1,4 +1,5 @@
 import type { CapabilityArtifact, CapabilityValidation } from "../artifact/types.js";
+import type { RuntimeAuthProvider } from "../auth/types.js";
 import { MemoryEvidenceSink, EvidenceRecorder } from "../evidence/recorder.js";
 import { replayCapability } from "../replay/executor.js";
 
@@ -20,6 +21,8 @@ export async function validateCapabilityStability(options: {
   runs: number;
   inputsForRun: (runNumber: number) => Record<string, unknown>;
   headless?: boolean;
+  approvalGranted?: boolean;
+  authProvider?: RuntimeAuthProvider;
 }): Promise<CapabilityValidationReport> {
   let successes = 0;
   let failures = 0;
@@ -39,6 +42,8 @@ export async function validateCapabilityStability(options: {
       inputs: options.inputsForRun(index + 1),
       origin: options.origin,
       headless: options.headless,
+      approvalGranted: options.approvalGranted,
+      authProvider: options.authProvider,
       evidence: recorder
     });
 

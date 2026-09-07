@@ -1,8 +1,8 @@
 import type { CheckpointDefinition } from "../artifact/types.js";
 
-export function buildDiscoveryCheckpoint(outputName: string): CheckpointDefinition {
+export function buildDiscoveryCheckpoint(outputName: string, description = "Account balances were extracted from the member account table."): CheckpointDefinition {
   return {
-    description: "Account balances were extracted from the member account table.",
+    description,
     conditions: [
       {
         type: "output_present",

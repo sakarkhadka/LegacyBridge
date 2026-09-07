@@ -15,6 +15,10 @@ export type TriggerInterventionOptions = {
   surface: SurfaceAdapter;
 };
 
+export type ManualInterventionOptions = Omit<TriggerInterventionOptions, "surface"> & {
+  screenshot?: InterventionRequest["screenshot"];
+};
+
 export type ResumeVerificationResult = {
   ok: boolean;
   state: string;
@@ -32,6 +36,18 @@ export class InterventionManager {
   async trigger(options: TriggerInterventionOptions): Promise<InterventionRequest> {
     this.controlState.markInterventionRequired();
     const screenshot = await options.surface.captureEvidence().catch(() => undefined);
+    return this.createIntervention({
+      ...options,
+      screenshot
+    });
+  }
+
+  triggerManual(options: ManualInterventionOptions): InterventionRequest {
+    this.controlState.markInterventionRequired();
+    return this.createIntervention(options);
+  }
+
+  private createIntervention(options: ManualInterventionOptions): InterventionRequest {
     this.active = {
       id: `int-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       runId: options.runId,
@@ -39,7 +55,7 @@ export class InterventionManager {
       currentStepId: options.currentStepId,
       reason: options.reason,
       currentRoute: options.currentRoute,
-      screenshot,
+      screenshot: options.screenshot,
       lastActionIds: options.lastActionIds,
       controlOwner: "automation",
       createdAt: new Date().toISOString()

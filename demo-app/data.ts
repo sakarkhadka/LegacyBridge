@@ -20,6 +20,30 @@ export type AccountTransaction = {
   balance: string;
 };
 
+export type DemoUserRole = "READ_ONLY" | "READ_WRITE";
+
+export type DemoUser = {
+  username: string;
+  displayName: string;
+  role: DemoUserRole;
+  passwordHash: string;
+};
+
+export const users: Record<string, DemoUser> = {
+  read: {
+    username: "read",
+    displayName: "Read Only Operator",
+    role: "READ_ONLY",
+    passwordHash: "88567ae16a27e6271ffe2ea5e78df7f527ec90ee933de5992a76909ebed266bb"
+  },
+  readwrite: {
+    username: "readwrite",
+    displayName: "Read Write Operator",
+    role: "READ_WRITE",
+    passwordHash: "0e92538ce46794162f280cfcab4b9b3bda1d1d6b05f57332726601101095fe54"
+  }
+};
+
 export const members: Record<string, Member> = {
   "12345": {
     id: "12345",

@@ -1,8 +1,9 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createHash, randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { URL } from "node:url";
-import type { AccountTransaction, Member } from "./data.js";
+import { users, type AccountTransaction, type DemoUser, type DemoUserRole, type Member } from "./data.js";
 import { loadPersistentState, savePersistentState, seededState } from "./state-store.js";
 
 const defaultPort = Number(process.env.PORT ?? 3000);
@@ -14,24 +15,32 @@ type RequestContext = {
   scenario?: string;
   noticeDismissed: boolean;
   members: Record<string, Member>;
+  authRequired: boolean;
+  currentUser?: DemoUser;
   persistState: () => void;
 };
 
 export function createDemoAppServer(options: {
   persistState?: boolean;
   statePath?: string;
+  authRequired?: boolean;
 } = {}) {
   const state = options.persistState
     ? loadPersistentState(options.statePath)
     : seededState();
+  const sessions = new Map<string, string>();
+  const authRequired = options.authRequired ?? false;
   return createServer(async (request, response) => {
     try {
       const requestUrl = new URL(request.url ?? "/", "http://localhost");
+      const currentUser = currentUserFromRequest(request, sessions);
       const context: RequestContext = {
         url: requestUrl,
         scenario: requestUrl.searchParams.get("scenario") ?? undefined,
         noticeDismissed: requestUrl.searchParams.get("dismissNotice") === "1",
         members: state.members,
+        authRequired,
+        currentUser,
         persistState: () => {
           if (options.persistState) {
             savePersistentState(state, options.statePath);
@@ -43,14 +52,14 @@ export function createDemoAppServer(options: {
         await delay(850);
       }
 
-      routeRequest(request, response, context);
+      await routeRequest(request, response, context, sessions);
     } catch (error) {
       sendHtml(response, 500, layout("Application Error", systemErrorPage(String(error)), { hideNotice: true }));
     }
   });
 }
 
-function routeRequest(_request: IncomingMessage, response: ServerResponse, context: RequestContext): void {
+async function routeRequest(request: IncomingMessage, response: ServerResponse, context: RequestContext, sessions: Map<string, string>): Promise<void> {
   const pathname = context.url.pathname;
 
   if (context.scenario === "session-expired") {
@@ -60,6 +69,38 @@ function routeRequest(_request: IncomingMessage, response: ServerResponse, conte
 
   if (context.scenario === "error") {
     sendHtml(response, 500, layout("Application Error", systemErrorPage("Simulated host exception HC-5007."), { hideNotice: true }));
+    return;
+  }
+
+  if (pathname === "/login") {
+    if (request.method === "POST") {
+      await handleLogin(request, response, context, sessions);
+      return;
+    }
+    sendHtml(response, 200, layout("Heritage Core Servicing - Sign In", loginPage(context), { hideNotice: true, currentUser: context.currentUser }));
+    return;
+  }
+
+  if (pathname === "/logout") {
+    const sessionId = cookieValue(request.headers.cookie, "hc_session");
+    if (sessionId) {
+      sessions.delete(sessionId);
+    }
+    response.writeHead(302, {
+      Location: "/login",
+      "Set-Cookie": "hc_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"
+    });
+    response.end();
+    return;
+  }
+
+  if (requiresLogin(pathname, context)) {
+    redirect(response, `/login?next=${encodeURIComponent(`${pathname}${context.url.search}`)}`);
+    return;
+  }
+
+  if (context.authRequired && requiresWriteRole(pathname) && context.currentUser?.role !== "READ_WRITE") {
+    sendHtml(response, 403, layout("Heritage Core Servicing - Permission Denied", rolePermissionDeniedPage(context.currentUser?.role ?? "READ_ONLY"), noticeOptions(context)));
     return;
   }
 
@@ -219,14 +260,18 @@ function sendAccountsFrame(response: ServerResponse, memberId: string, context: 
     .map(
       (account) => {
         const query = accountQuery(account.number, context);
+        const writeActions = context.currentUser?.role === "READ_WRITE" || !context.authRequired
+          ? `
+            <a class="host-button" target="_top" href="/servicing/member/${encodeURIComponent(member.id)}/account-transaction?operation=deposit&${query}">Deposit</a>
+            <a class="host-button" target="_top" href="/servicing/member/${encodeURIComponent(member.id)}/account-transaction?operation=withdraw&${query}">Withdraw</a>`
+          : "";
         return `
         <tr>
           <td>${escapeHtml(account.type)}</td>
           <td>${escapeHtml(account.number)}</td>
           <td class="amount">${escapeHtml(account.balance)}</td>
           <td>
-            <a class="host-button" target="_top" href="/servicing/member/${encodeURIComponent(member.id)}/account-transaction?operation=deposit&${query}">Deposit</a>
-            <a class="host-button" target="_top" href="/servicing/member/${encodeURIComponent(member.id)}/account-transaction?operation=withdraw&${query}">Withdraw</a>
+            ${writeActions}
             <a class="host-button" target="_top" href="/servicing/member/${encodeURIComponent(member.id)}/account-transactions?${query}">Transactions</a>
           </td>
         </tr>`;
@@ -724,6 +769,48 @@ function permissionDeniedPage(member: Member): string {
   `;
 }
 
+function rolePermissionDeniedPage(role: DemoUserRole): string {
+  return `
+    <h2>Permission Denied</h2>
+    <div class="host-message">Permission denied</div>
+    <p>Current role ${escapeHtml(role)} may not perform write operations.</p>
+    <a class="host-button" href="/servicing/search">Back to Search</a>
+  `;
+}
+
+function loginPage(context: RequestContext, message?: string): string {
+  const usernameId = generatedHostId("username", context);
+  const passwordId = generatedHostId("password", context);
+  const next = context.url.searchParams.get("next") ?? "/servicing/search";
+  return `
+    <h2>Operator Sign In</h2>
+    ${message ? `<div class="host-message">${escapeHtml(message)}</div>` : ""}
+    <form action="/login" method="post">
+      <input type="hidden" name="next" value="${escapeAttribute(next)}" />
+      <table class="layout-table">
+        <tr>
+          <td><label for="${usernameId}">Username</label></td>
+          <td><input id="${usernameId}" name="username" autocomplete="username" /></td>
+        </tr>
+        <tr>
+          <td><label for="${passwordId}">Password</label></td>
+          <td><input id="${passwordId}" name="password" type="password" autocomplete="current-password" /></td>
+        </tr>
+      </table>
+      <div class="button-row">
+        <button type="submit">Sign In</button>
+        <button type="reset">Reset</button>
+      </div>
+    </form>
+    <h3>Demo Operators</h3>
+    <table class="nested-table">
+      <tr><th>Username</th><th>Role</th></tr>
+      <tr><td>read</td><td>Read only</td></tr>
+      <tr><td>readwrite</td><td>Read/write</td></tr>
+    </table>
+  `;
+}
+
 function sessionExpiredPage(): string {
   return `
     <h2>Session Expired</h2>
@@ -742,7 +829,10 @@ function systemErrorPage(message: string): string {
   `;
 }
 
-function layout(title: string, body: string, options: { hideNotice?: boolean } = {}): string {
+function layout(title: string, body: string, options: { hideNotice?: boolean; currentUser?: DemoUser } = {}): string {
+  const userLine = options.currentUser
+    ? `<span>Signed in: ${escapeHtml(options.currentUser.username)} (${escapeHtml(options.currentUser.role)})</span><a href="/logout">Sign Out</a>`
+    : `<a href="/login">Sign In</a>`;
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -752,6 +842,8 @@ function layout(title: string, body: string, options: { hideNotice?: boolean } =
     body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #111; background: #d7d7d7; }
     header { background: #06345d; color: white; padding: 8px 14px; border-bottom: 4px solid #8a8a8a; }
     header h1 { font-size: 20px; margin: 0; letter-spacing: 0; }
+    header .user-line { margin-top: 4px; font-size: 12px; display: flex; gap: 10px; align-items: center; }
+    header .user-line a { color: white; }
     .shell { display: table; width: 100%; min-height: calc(100vh - 48px); }
     nav { display: table-cell; width: 190px; background: #eeeeee; border-right: 1px solid #888; padding: 10px; vertical-align: top; }
     main { display: table-cell; padding: 14px; vertical-align: top; background: #f7f7f7; }
@@ -776,7 +868,7 @@ function layout(title: string, body: string, options: { hideNotice?: boolean } =
   </style>
 </head>
 <body>
-  <header><h1>Heritage Core Servicing</h1></header>
+  <header><h1>Heritage Core Servicing</h1><div class="user-line">${userLine}</div></header>
   <div class="shell">
     <nav>
       <strong>Host Menu</strong>
@@ -823,9 +915,10 @@ function systemNotice(): string {
   `;
 }
 
-function noticeOptions(context: RequestContext): { hideNotice: boolean } {
+function noticeOptions(context: RequestContext): { hideNotice: boolean; currentUser?: DemoUser } {
   return {
-    hideNotice: context.scenario !== "interstitial" || context.noticeDismissed
+    hideNotice: context.scenario !== "interstitial" || context.noticeDismissed,
+    currentUser: context.currentUser
   };
 }
 
@@ -842,6 +935,83 @@ function withScenario(pathname: string, context: RequestContext): string {
   }
   const separator = pathname.includes("?") ? "&" : "?";
   return `${pathname}${separator}scenario=${encodeURIComponent(context.scenario)}`;
+}
+
+function requiresLogin(pathname: string, context: RequestContext): boolean {
+  return context.authRequired && (pathname === "/" || pathname.startsWith("/servicing")) && !context.currentUser;
+}
+
+function requiresWriteRole(pathname: string): boolean {
+  return (
+    pathname.includes("/account-transaction") ||
+    pathname.includes("/open-sub-account") ||
+    pathname.includes("/sub-account-review") ||
+    pathname.includes("/sub-account-confirmed")
+  ) && !pathname.includes("/account-transactions");
+}
+
+async function handleLogin(
+  request: IncomingMessage,
+  response: ServerResponse,
+  context: RequestContext,
+  sessions: Map<string, string>
+): Promise<void> {
+  const body = await readRequestBody(request);
+  const form = new URLSearchParams(body);
+  const username = form.get("username")?.trim() ?? "";
+  const password = form.get("password") ?? "";
+  const next = safeNextPath(form.get("next") ?? "/servicing/search");
+  const user = users[username];
+
+  if (!user || user.passwordHash !== hashPassword(password)) {
+    sendHtml(response, 401, layout("Heritage Core Servicing - Sign In", loginPage(context, "Invalid username or password."), { hideNotice: true }));
+    return;
+  }
+
+  const sessionId = randomUUID();
+  sessions.set(sessionId, user.username);
+  response.writeHead(302, {
+    Location: next,
+    "Set-Cookie": `hc_session=${sessionId}; HttpOnly; SameSite=Lax; Path=/; Max-Age=3600`
+  });
+  response.end();
+}
+
+function currentUserFromRequest(request: IncomingMessage, sessions: Map<string, string>): DemoUser | undefined {
+  const sessionId = cookieValue(request.headers.cookie, "hc_session");
+  const username = sessionId ? sessions.get(sessionId) : undefined;
+  return username ? users[username] : undefined;
+}
+
+function cookieValue(cookieHeader: string | undefined, name: string): string | undefined {
+  if (!cookieHeader) {
+    return undefined;
+  }
+  return cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .map((part) => part.split("="))
+    .find(([key]) => key === name)?.[1];
+}
+
+function hashPassword(password: string): string {
+  return createHash("sha256").update(password).digest("hex");
+}
+
+function readRequestBody(request: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk: string) => {
+      body += chunk;
+    });
+    request.on("end", () => resolve(body));
+    request.on("error", reject);
+  });
+}
+
+function safeNextPath(next: string): string {
+  return next.startsWith("/") && !next.startsWith("//") ? next : "/servicing/search";
 }
 
 function generatedHostId(prefix: string, context: RequestContext): string {
@@ -886,7 +1056,7 @@ function delay(ms: number): Promise<void> {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  createDemoAppServer({ persistState: true }).listen(defaultPort, () => {
+  createDemoAppServer({ persistState: true, authRequired: true }).listen(defaultPort, () => {
     console.log(`Heritage Core Servicing running at http://localhost:${defaultPort}/servicing/search`);
   });
 }

@@ -111,4 +111,101 @@ describe("human intervention handoff", () => {
       await operator.close();
     }
   }, 30_000);
+
+  it("serves an interactive operator page with approval and resume actions", async () => {
+    session = await createPlaywrightSession({ headless: true });
+    const adapter = new PlaywrightSurfaceAdapter({
+      page: session.page,
+      sessionId: session.id,
+      evidenceDir: "evidence/tmp/tests-operator"
+    });
+    await adapter.act({
+      type: "navigate",
+      value: `${origin}/servicing/member/12345/account-transaction-review?operation=deposit&accountNumber=S-100234&amount=25.00`
+    });
+    const manager = new InterventionManager({
+      sensitiveValues: ["12345"]
+    });
+    const intervention = await manager.trigger({
+      runId: "approval-run",
+      capabilityId: "member.deposit-to-account",
+      currentStepId: "confirm-deposit",
+      reason: "RISK_APPROVAL_REQUIRED",
+      currentRoute: `${origin}/servicing/member/12345/account-transaction-review`,
+      lastActionIds: ["confirm-deposit"],
+      surface: adapter
+    });
+    manager.takeHumanControl();
+    const operator = await createOperatorServer(manager, {
+      title: "Test Operator Console",
+      showApproval: true,
+      showResume: true,
+      sensitiveValues: ["12345"],
+      screenshotPath: intervention.screenshot?.path,
+      highlightText: "Confirm Deposit",
+      ttlSeconds: 60
+    });
+
+    try {
+      const html = await fetch(operator.url, {
+        headers: {
+          Accept: "text/html"
+        }
+      }).then((response) => response.text());
+      expect(html).toContain("Approve Action");
+      expect(html).toContain("Confirm Resume");
+      expect(html).toContain("Time left");
+      expect(html).toContain("Confirm Deposit");
+      expect(html).toContain("/screenshot");
+      expect(html).toContain("Close");
+      expect(html).not.toContain("12345");
+
+      const screenshot = await fetch(`${operator.url}/screenshot`);
+      expect(screenshot.status).toBe(200);
+      expect(screenshot.headers.get("content-type")).toBe("image/png");
+
+      const approval = operator.waitForApproval(5000);
+      const resume = operator.waitForResume(5000);
+      await fetch(`${operator.url}/approve`, { method: "POST" });
+      await fetch(`${operator.url}/resume`, { method: "POST" });
+
+      expect(await approval).toBe(true);
+      expect(await resume).toBe(true);
+      const status = await fetch(`${operator.url}/status`).then((response) => response.json() as Promise<{
+        approvalGranted: boolean;
+        resumeRequested: boolean;
+      }>);
+      expect(status.approvalGranted).toBe(true);
+      expect(status.resumeRequested).toBe(true);
+    } finally {
+      await operator.close();
+    }
+  });
+
+  it("treats close as a rejected operator decision", async () => {
+    const manager = new InterventionManager();
+    manager.triggerManual({
+      runId: "close-run",
+      capabilityId: "member.deposit-to-account",
+      currentStepId: "confirm-deposit",
+      reason: "RISK_APPROVAL_REQUIRED",
+      currentRoute: `${origin}/servicing/member/12345/account-transaction-review`,
+      lastActionIds: ["confirm-deposit"]
+    });
+    manager.takeHumanControl();
+    const operator = await createOperatorServer(manager, {
+      showApproval: true,
+      showResume: false,
+      ttlSeconds: 60
+    });
+
+    try {
+      const approval = operator.waitForApproval(5000);
+      await fetch(`${operator.url}/close`, { method: "POST" });
+
+      expect(await approval).toBe(false);
+    } finally {
+      await operator.close();
+    }
+  });
 });

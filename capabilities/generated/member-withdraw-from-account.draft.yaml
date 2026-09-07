@@ -1,9 +1,9 @@
 schemaVersion: "1.0"
 capability:
-  id: member.withdraw-from-account
-  version: 1.0.0
+  id: member.withdraw-from-account.generated
+  version: 0.1.0
   name: Withdraw from account
-  description: Withdraw funds from a selected synthetic member account number after human approval.
+  description: Draft generated from discovery for deterministic replay of an approval-gated account withdrawal.
   status: draft
 targetApplication:
   vendor: heritage-core
@@ -29,12 +29,12 @@ inputs:
     type: string
     required: true
     sensitive: true
-    description: Exact account number to withdraw from.
+    description: Exact account number.
     pattern: ^[A-Z]-[0-9]{6}$
   amount:
     type: string
     required: true
-    description: Positive dollar amount to withdraw.
+    description: Positive dollar amount.
     pattern: ^[0-9]+(\.[0-9]{1,2})?$
 outputs:
   newBalance:
@@ -73,10 +73,17 @@ steps:
     postcondition:
       - type: text_present
         value: Member Search
+    recovery:
+      retries:
+        maxAttempts: 1
+        backoffMs: 250
+      knownDialogs:
+        - title: System Notice
+          response: dismiss
   - id: enter-member-id
     action: fill
     target:
-      description: Member Number input
+      description: Member Number field
       primary:
         strategy: label
         text: Member Number
@@ -95,10 +102,18 @@ steps:
         anchorText: Member Number
         direction: below
         controlType: submit button
+      fallbacks:
+        - strategy: accessible
+          role: button
+          name: Search
     wait:
       type: text
       text: Accounts
       timeoutMs: 5000
+    recovery:
+      retries:
+        maxAttempts: 1
+        backoffMs: 250
   - id: open-withdraw-screen
     action: click
     target:
@@ -112,6 +127,10 @@ steps:
       type: text
       text: Withdraw Funds
       timeoutMs: 5000
+    recovery:
+      retries:
+        maxAttempts: 1
+        backoffMs: 250
   - id: enter-withdrawal-amount
     action: fill
     target:
@@ -134,6 +153,10 @@ steps:
       type: text
       text: Withdrawal Review
       timeoutMs: 5000
+    recovery:
+      retries:
+        maxAttempts: 1
+        backoffMs: 250
   - id: confirm-withdrawal
     action: click
     target:
@@ -147,6 +170,10 @@ steps:
       type: text
       text: Withdrawal Confirmation
       timeoutMs: 5000
+    recovery:
+      retries:
+        maxAttempts: 1
+        backoffMs: 250
   - id: extract-new-balance
     action: extract
     target:
@@ -159,6 +186,13 @@ steps:
     output:
       name: newBalance
       parseAs: money
+      source:
+        description: New balance from the withdrawal confirmation table
+        primary:
+          strategy: structural
+          description: Confirmation table new balance value
+          rowText: New Balance
+          columnText: Value
 checkpoint:
   description: Withdrawal completed and the resulting account balance was extracted.
   conditions:
@@ -174,14 +208,8 @@ policy:
     - navigate
     - click
     - fill
+    - select
     - extract
     - wait
   risk: REVERSIBLE_WRITE
   approvalRequired: true
-validation:
-  runs: 1
-  successes: 1
-  failures: 0
-  primaryLocatorUsage: 1
-  fallbackLocatorUsage: 0
-  lastValidatedAt: 2026-09-07T18:25:02.000Z

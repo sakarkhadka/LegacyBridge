@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDemoAppServer, type DemoAppServer } from "../demo-app/server.js";
 import { loadCapabilityArtifact } from "../src/artifact/loader.js";
+import { DemoFormAuthProvider } from "../src/auth/demo-form-auth-provider.js";
 import { replayCapability } from "../src/replay/executor.js";
 
 let server: DemoAppServer;
@@ -53,7 +54,7 @@ describe("deterministic replay executor", () => {
     expect(summary.llmDecisionCalls).toBe(0);
     expect(summary.result.status).toBe("success");
     if (summary.result.status !== "success") {
-      throw new Error("Expected replay success");
+      throw new Error(`Expected replay success: ${JSON.stringify(summary, null, 2)}`);
     }
     expect(summary.result.outputs.accountBalances).toEqual({
       type: "accountBalances",
@@ -123,6 +124,62 @@ describe("deterministic replay executor", () => {
     expect(summary.result.error.observed).toContain("irreversible write requires human approval");
   }, 30_000);
 
+  it("authenticates a read-only runtime user for read capabilities", async () => {
+    const authServer = createDemoAppServer({ authRequired: true });
+    const authOrigin = await listen(authServer);
+    const capability = await loadCapabilityArtifact("member.get-account-balances");
+
+    try {
+      const summary = await replayCapability({
+        capability,
+        inputs: {
+          memberId: "54321"
+        },
+        origin: authOrigin,
+        authProvider: new DemoFormAuthProvider({
+          username: "read",
+          password: "r123"
+        })
+      });
+
+      expect(summary.result.status).toBe("success");
+    } finally {
+      await closeServer(authServer);
+    }
+  }, 30_000);
+
+  it("blocks a read-only runtime user from write capabilities", async () => {
+    const authServer = createDemoAppServer({ authRequired: true });
+    const authOrigin = await listen(authServer);
+    const capability = await loadCapabilityArtifact("member.deposit-to-account");
+
+    try {
+      const summary = await replayCapability({
+        capability,
+        inputs: {
+          memberId: "12345",
+          accountNumber: "S-100234",
+          amount: "25.00"
+        },
+        origin: authOrigin,
+        approvalGranted: true,
+        authProvider: new DemoFormAuthProvider({
+          username: "read",
+          password: "r123"
+        })
+      });
+
+      expect(summary.result.status).toBe("failure");
+      if (summary.result.status !== "failure") {
+        throw new Error("Expected replay failure");
+      }
+      expect(summary.result.error.class).toBe("POLICY_VIOLATION");
+      expect(summary.result.error.observed).toContain("READ_ONLY");
+    } finally {
+      await closeServer(authServer);
+    }
+  }, 30_000);
+
   it("deposits funds when approval is granted", async () => {
     const capability = await loadCapabilityArtifact("member.deposit-to-account");
     const summary = await replayCapability({
@@ -137,14 +194,45 @@ describe("deterministic replay executor", () => {
     });
 
     expect(summary.llmDecisionCalls).toBe(0);
-    expect(summary.result.status).toBe("success");
     if (summary.result.status !== "success") {
-      throw new Error("Expected replay success");
+      throw new Error(`Expected replay success: ${JSON.stringify(summary, null, 2)}`);
     }
     expect(summary.result.outputs.newBalance).toEqual({
       type: "money",
       value: {
         amount: 3207.46,
+        currency: "USD"
+      }
+    });
+  }, 30_000);
+
+  it("continues when a human completes the approved confirmation in the browser", async () => {
+    const capability = await loadCapabilityArtifact("member.deposit-to-account");
+    const summary = await replayCapability({
+      capability,
+      inputs: {
+        memberId: "54321",
+        accountNumber: "S-889120",
+        amount: "5.00"
+      },
+      origin,
+      approvalHandler: async (request) => {
+        await request.page.getByRole("button", { name: "Confirm Deposit" }).click();
+        return {
+          approved: true,
+          completedByHuman: true
+        };
+      }
+    });
+
+    expect(summary.llmDecisionCalls).toBe(0);
+    if (summary.result.status !== "success") {
+      throw new Error(`Expected replay success: ${JSON.stringify(summary, null, 2)}`);
+    }
+    expect(summary.result.outputs.newBalance).toEqual({
+      type: "money",
+      value: {
+        amount: 8049.19,
         currency: "USD"
       }
     });
@@ -367,3 +455,26 @@ describe("deterministic replay executor", () => {
     expect(summary.result.error.class).toBe("PRECONDITION_FAILED");
   });
 });
+
+async function listen(server: DemoAppServer): Promise<string> {
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Expected server to listen on a TCP address");
+  }
+  return `http://127.0.0.1:${address.port}`;
+}
+
+async function closeServer(server: DemoAppServer): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}

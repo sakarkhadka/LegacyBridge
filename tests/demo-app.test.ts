@@ -224,6 +224,65 @@ describe("Heritage Core Servicing demo app", () => {
       await rm(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("requires login and enforces read-only versus read-write operators when auth is enabled", async () => {
+    const authServer = createDemoAppServer({ authRequired: true });
+    const authUrl = await listen(authServer);
+
+    try {
+      const redirected = await fetch(`${authUrl}/servicing/search`, {
+        redirect: "manual"
+      });
+      expect(redirected.status).toBe(302);
+      expect(redirected.headers.get("location")).toContain("/login");
+
+      const readCookie = await login(authUrl, "read", "r123");
+      const readSearch = await fetch(`${authUrl}/servicing/search`, {
+        headers: {
+          Cookie: readCookie
+        }
+      });
+      const readFrame = await fetch(`${authUrl}/servicing/member/12345/accounts-frame`, {
+        headers: {
+          Cookie: readCookie
+        }
+      });
+      const readWriteAttempt = await fetch(`${authUrl}/servicing/member/12345/account-transaction?operation=deposit&accountNumber=S-100234`, {
+        headers: {
+          Cookie: readCookie
+        }
+      });
+
+      expect(readSearch.status).toBe(200);
+      expect(await readSearch.text()).toContain("Member Number");
+      const readFrameHtml = await readFrame.text();
+      expect(readFrameHtml).toContain("Transactions");
+      expect(readFrameHtml).not.toContain(">Deposit<");
+      expect(readFrameHtml).not.toContain(">Withdraw<");
+      expect(readWriteAttempt.status).toBe(403);
+      expect(await readWriteAttempt.text()).toContain("may not perform write operations");
+
+      const readWriteCookie = await login(authUrl, "readwrite", "rw123");
+      const writeForm = await fetch(`${authUrl}/servicing/member/12345/account-transaction?operation=deposit&accountNumber=S-100234`, {
+        headers: {
+          Cookie: readWriteCookie
+        }
+      });
+      const writeFrame = await fetch(`${authUrl}/servicing/member/12345/accounts-frame`, {
+        headers: {
+          Cookie: readWriteCookie
+        }
+      });
+
+      expect(writeForm.status).toBe(200);
+      expect(await writeForm.text()).toContain("Deposit Funds");
+      const writeFrameHtml = await writeFrame.text();
+      expect(writeFrameHtml).toContain(">Deposit<");
+      expect(writeFrameHtml).toContain(">Withdraw<");
+    } finally {
+      await closeServer(authServer);
+    }
+  });
 });
 
 async function listen(server: DemoAppServer): Promise<string> {
@@ -247,4 +306,23 @@ async function closeServer(server: DemoAppServer): Promise<void> {
       resolve();
     });
   });
+}
+
+async function login(baseUrl: string, username: string, password: string): Promise<string> {
+  const response = await fetch(`${baseUrl}/login`, {
+    method: "POST",
+    redirect: "manual",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: new URLSearchParams({
+      username,
+      password,
+      next: "/servicing/search"
+    })
+  });
+  expect(response.status).toBe(302);
+  const cookie = response.headers.get("set-cookie");
+  expect(cookie).toBeTruthy();
+  return cookie?.split(";")[0] ?? "";
 }

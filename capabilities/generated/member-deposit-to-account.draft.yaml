@@ -1,9 +1,9 @@
 schemaVersion: "1.0"
 capability:
-  id: member.withdraw-from-account
-  version: 1.0.0
-  name: Withdraw from account
-  description: Withdraw funds from a selected synthetic member account number after human approval.
+  id: member.deposit-to-account.generated
+  version: 0.1.0
+  name: Deposit to account
+  description: Draft generated from discovery for deterministic replay of an approval-gated account deposit.
   status: draft
 targetApplication:
   vendor: heritage-core
@@ -29,18 +29,18 @@ inputs:
     type: string
     required: true
     sensitive: true
-    description: Exact account number to withdraw from.
+    description: Exact account number.
     pattern: ^[A-Z]-[0-9]{6}$
   amount:
     type: string
     required: true
-    description: Positive dollar amount to withdraw.
+    description: Positive dollar amount.
     pattern: ^[0-9]+(\.[0-9]{1,2})?$
 outputs:
   newBalance:
     type: money
     required: true
-    description: Account balance after the withdrawal is confirmed.
+    description: Account balance after the deposit is confirmed.
 outcomes:
   - code: MEMBER_NOT_FOUND
     description: No member exists for the supplied member number.
@@ -57,11 +57,6 @@ outcomes:
     when:
       - type: text_present
         value: Invalid amount
-  - code: INSUFFICIENT_FUNDS
-    description: The requested withdrawal exceeds the account balance.
-    when:
-      - type: text_present
-        value: Insufficient funds
 steps:
   - id: navigate-to-search
     action: navigate
@@ -73,10 +68,17 @@ steps:
     postcondition:
       - type: text_present
         value: Member Search
+    recovery:
+      retries:
+        maxAttempts: 1
+        backoffMs: 250
+      knownDialogs:
+        - title: System Notice
+          response: dismiss
   - id: enter-member-id
     action: fill
     target:
-      description: Member Number input
+      description: Member Number field
       primary:
         strategy: label
         text: Member Number
@@ -95,36 +97,48 @@ steps:
         anchorText: Member Number
         direction: below
         controlType: submit button
+      fallbacks:
+        - strategy: accessible
+          role: button
+          name: Search
     wait:
       type: text
       text: Accounts
       timeoutMs: 5000
-  - id: open-withdraw-screen
+    recovery:
+      retries:
+        maxAttempts: 1
+        backoffMs: 250
+  - id: open-deposit-screen
     action: click
     target:
-      description: Withdraw action in the requested account row
+      description: Deposit action in the requested account row
       primary:
         strategy: structural
         description: Accounts table row action for the requested account number
         rowText: "{{accountNumber}}"
-        controlText: Withdraw
+        controlText: Deposit
     wait:
       type: text
-      text: Withdraw Funds
+      text: Deposit Funds
       timeoutMs: 5000
-  - id: enter-withdrawal-amount
+    recovery:
+      retries:
+        maxAttempts: 1
+        backoffMs: 250
+  - id: enter-deposit-amount
     action: fill
     target:
-      description: Withdrawal amount input
+      description: Deposit amount input
       primary:
         strategy: label
         text: Amount
     value:
       parameter: amount
-  - id: review-withdrawal
+  - id: review-deposit
     action: click
     target:
-      description: Continue to withdrawal review
+      description: Continue to deposit review
       primary:
         strategy: relative
         anchorText: Amount
@@ -132,25 +146,33 @@ steps:
         controlType: submit button
     wait:
       type: text
-      text: Withdrawal Review
+      text: Deposit Review
       timeoutMs: 5000
-  - id: confirm-withdrawal
+    recovery:
+      retries:
+        maxAttempts: 1
+        backoffMs: 250
+  - id: confirm-deposit
     action: click
     target:
-      description: Confirm Withdrawal button
+      description: Confirm Deposit button
       primary:
         strategy: accessible
         role: button
-        name: Confirm Withdrawal
+        name: Confirm Deposit
     risk: IRREVERSIBLE_WRITE
     wait:
       type: text
-      text: Withdrawal Confirmation
+      text: Deposit Confirmation
       timeoutMs: 5000
+    recovery:
+      retries:
+        maxAttempts: 1
+        backoffMs: 250
   - id: extract-new-balance
     action: extract
     target:
-      description: New balance from the withdrawal confirmation table
+      description: New balance from the deposit confirmation table
       primary:
         strategy: structural
         description: Confirmation table new balance value
@@ -159,8 +181,15 @@ steps:
     output:
       name: newBalance
       parseAs: money
+      source:
+        description: New balance from the deposit confirmation table
+        primary:
+          strategy: structural
+          description: Confirmation table new balance value
+          rowText: New Balance
+          columnText: Value
 checkpoint:
-  description: Withdrawal completed and the resulting account balance was extracted.
+  description: Deposit completed and the resulting account balance was extracted.
   conditions:
     - type: output_present
       output: newBalance
@@ -174,14 +203,8 @@ policy:
     - navigate
     - click
     - fill
+    - select
     - extract
     - wait
   risk: REVERSIBLE_WRITE
   approvalRequired: true
-validation:
-  runs: 1
-  successes: 1
-  failures: 0
-  primaryLocatorUsage: 1
-  fallbackLocatorUsage: 0
-  lastValidatedAt: 2026-09-07T18:25:02.000Z

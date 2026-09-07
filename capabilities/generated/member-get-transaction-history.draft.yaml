@@ -1,9 +1,9 @@
 schemaVersion: "1.0"
 capability:
-  id: member.get-account-balances.generated
+  id: member.get-transaction-history.generated
   version: 0.1.0
-  name: Get account balances
-  description: Draft generated from discovery for deterministic replay of a synthetic member account balance lookup.
+  name: Get transaction history
+  description: Draft generated from discovery for deterministic replay of account transaction history lookup.
   status: draft
 targetApplication:
   vendor: heritage-core
@@ -25,11 +25,17 @@ inputs:
     sensitive: true
     description: Synthetic member number.
     pattern: ^[0-9]{5}$
-outputs:
-  accountBalances:
-    type: accountBalances
+  accountNumber:
+    type: string
     required: true
-    description: Available account balances for the member.
+    sensitive: true
+    description: Exact account number.
+    pattern: ^[A-Z]-[0-9]{6}$
+outputs:
+  transactions:
+    type: transactionHistory
+    required: true
+    description: Up to ten most recent transactions for the requested account.
 outcomes:
   - code: MEMBER_NOT_FOUND
     description: No member exists for the supplied member number.
@@ -93,28 +99,45 @@ steps:
       retries:
         maxAttempts: 1
         backoffMs: 250
-  - id: extract-account-balances
-    action: extract
+  - id: open-transaction-history
+    action: click
     target:
-      description: Accounts table with all available balances
+      description: Transactions action in the requested account row
       primary:
         strategy: structural
-        description: Full Accounts table containing account type, account number, and balance columns
+        description: Accounts table row action for the requested account number
+        rowText: "{{accountNumber}}"
+        controlText: Transactions
+    wait:
+      type: text
+      text: Most Recent 10 Transactions
+      timeoutMs: 5000
+    recovery:
+      retries:
+        maxAttempts: 1
+        backoffMs: 250
+  - id: extract-transactions
+    action: extract
+    target:
+      description: Most recent transactions table
+      primary:
+        strategy: structural
+        description: Full transactions table containing Date/Time, Account Number, Account Type, Type, Amount, and Balance columns
         columnText: Balance
     output:
-      name: accountBalances
-      parseAs: accountBalances
+      name: transactions
+      parseAs: transactionHistory
       source:
-        description: Accounts table with all available balances
+        description: Most recent transactions table
         primary:
           strategy: structural
-          description: Full Accounts table containing account type, account number, and balance columns
+          description: Full transactions table containing Date/Time, Account Number, Account Type, Type, Amount, and Balance columns
           columnText: Balance
 checkpoint:
-  description: Account balances were extracted from the member account table.
+  description: Transaction history was extracted from the account transaction table.
   conditions:
     - type: output_present
-      output: accountBalances
+      output: transactions
 policy:
   allowedOrigins:
     - "{{origin}}"

@@ -126,3 +126,10 @@ policy:
     - extract
     - wait
   risk: READ_ONLY
+validation:
+  runs: 1
+  successes: 1
+  failures: 0
+  primaryLocatorUsage: 1
+  fallbackLocatorUsage: 0
+  lastValidatedAt: 2026-09-07T18:25:01.749Z
