@@ -32,6 +32,20 @@ If `npx` is unavailable in your shell, use npm's equivalent exec form:
 npm exec playwright install chromium
 ```
 
+Create a local environment file when you want shell-based defaults for runtime login or live LLM discovery:
+
+```bash
+cp .env.example .env
+```
+
+The checked-in defaults already match the demo users. Set `OPENAI_API_KEY` only when you want to run live model-backed discovery; replay and scripted discovery do not need it.
+
+Load `.env` before commands that should use those shell values. In Git Bash:
+
+```bash
+set -a; source .env; set +a
+```
+
 ## Overview
 
 The target app is a local legacy-style servicing console named `Heritage Core Servicing`. It intentionally uses server-rendered pages, generated IDs, duplicate button labels, table layouts, and an accounts iframe so replay cannot depend on clean test IDs.
@@ -317,10 +331,10 @@ The repository includes live LLM discovery evidence at:
 evidence/discovery-live/run.jsonl
 ```
 
-To run your own live discovery, create `.env` from `.env.example` and set `OPENAI_API_KEY`. In Git Bash:
+To run your own live discovery, set `OPENAI_API_KEY` in `.env`, load the file into your shell, then run:
 
 ```bash
-set -a; source .env; set +a; npm run demo:discover -- --model gpt-5-mini --maxSteps 6 --timeoutMs 120000 --evidencePath evidence/discovery-live/run.jsonl
+npm run demo:discover -- --model gpt-5-mini --maxSteps 6 --timeoutMs 120000 --evidencePath evidence/discovery-live/run.jsonl
 ```
 
 For a free deterministic check of the same observe-decide-act loop:
