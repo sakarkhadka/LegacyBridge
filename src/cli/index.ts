@@ -267,6 +267,8 @@ async function runHandoffCommand(args: string[]): Promise<void> {
   const targetApp = await prepareTargetApp(options, 3105, tenant);
   const origin = targetApp.origin;
   const memberId = defaultMemberId(options, tenant);
+  const capability = await loadCapabilityForOptions("member.get-account-balances", options, tenant);
+  const authProvider = authProviderFromOptions(options, tenant);
   const evidence = options.evidencePath
     ? await createJsonlRecorder(options.evidencePath, {
       runId: `handoff-${Date.now()}`,
@@ -293,6 +295,13 @@ async function runHandoffCommand(args: string[]): Promise<void> {
         mode: "handoff",
         trigger: "SESSION_EXPIRED"
       }
+    });
+    await authProvider?.authenticate({
+      origin,
+      page: session.page,
+      capability,
+      inputs: replayInputs(options, memberId),
+      evidence
     });
     manager.assertAutomationMayAct();
     await adapter.act({

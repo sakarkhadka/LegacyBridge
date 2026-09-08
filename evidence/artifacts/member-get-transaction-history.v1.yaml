@@ -127,9 +127,9 @@ policy:
     - wait
   risk: READ_ONLY
 validation:
-  runs: 3
-  successes: 3
+  runs: 1
+  successes: 1
   failures: 0
   primaryLocatorUsage: 1
   fallbackLocatorUsage: 0
-  lastValidatedAt: 2026-09-08T06:47:08.024Z
+  lastValidatedAt: 2026-09-07T18:48:23.197Z

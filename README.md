@@ -11,6 +11,27 @@ Model discovers
 
 LegacyBridge is a focused end-to-end computer-use automation system for legacy bank/credit-union back-office UIs. It demonstrates a real LLM-driven discovery run, compiles the learned flow into a typed capability artifact, replays that artifact without LLM decisions, handles business outcomes and runtime failures, routes same-session human handoff, enforces policy, redacts sensitive data, and exposes an agent-facing capability catalog.
 
+Run commands from the repository root:
+
+```bash
+cd path/to/LegacyBridge
+```
+
+## Setup
+
+Install dependencies and the Chromium browser used by Playwright before running demo or CLI commands:
+
+```bash
+npm install
+npx playwright install chromium
+```
+
+If `npx` is unavailable in your shell, use npm's equivalent exec form:
+
+```bash
+npm exec playwright install chromium
+```
+
 ## Overview
 
 The target app is a local legacy-style servicing console named `Heritage Core Servicing`. It intentionally uses server-rendered pages, generated IDs, duplicate button labels, table layouts, and an accounts iframe so replay cannot depend on clean test IDs.
@@ -44,7 +65,7 @@ Manual demo and CLI runs share mutable demo state through `demo-app/state.json`.
 
 > **Seed Data Caution**
 >
-> Most reviewer commands assume the seeded Heritage members and accounts still exist, including `12345`, `54321`, `S-100234`, and `C-442910`. The reset command below is available as a recovery option if local demo state was changed heavily or manually edited, but it is not part of the normal happy path.
+> Most documented commands assume the seeded Heritage members and accounts still exist, including `12345`, `54321`, `S-100234`, and `C-442910`. The reset command below is available as a recovery option if local demo state was changed heavily or manually edited, but it is not part of the normal happy path.
 
 The standalone apps require operator login. Seeded users are:
 
@@ -59,23 +80,25 @@ analyst / a123 -> read-only access for account balances
 
 Replay, discovery, and compile commands authenticate as a runtime user before executing the capability. Without `--tenant`, commands use the Heritage demo defaults: Heritage app startup, Heritage capability mappings, and `readwrite/rw123` runtime auth. Override auth with `--runtimeUser`, `--runtimePassword`, or the matching environment variables. Use `--auth none` only for explicit local unauthenticated experiments.
 
-Restore local demo state only when you intentionally want to return to the committed seed baseline:
+After setup, restore local demo state only when you intentionally want to return to the committed seed baseline:
 
 ```bash
 npm run demo:reset-data # recovery only; restores the committed seed baseline
 ```
 
-Start the demo app manually on port `3000`:
+After setup, start the demo app manually on port `3000`:
 
 ```bash
 npm run demo-app
 ```
 
-Start the second tenant app manually on port `3010`:
+After setup, start the second tenant app manually on port `3010`:
 
 ```bash
 npm run demo:riverside-app
 ```
+
+Manual app servers keep running until you stop them with `Ctrl+C`. When a section says "already-running app," start the app in one terminal and run replay/validation/catalog commands in another terminal.
 
 When passing CLI flags through an npm script, keep the extra `--` before the flags:
 
@@ -145,10 +168,27 @@ npm run replay -- --tenant riverside-demo --capability member.get-account-balanc
 
 For an already-running app, pair the tenant with `--noDemoServer`; the profile's `application.defaultOrigin` is used unless `--origin` is provided:
 
+Terminal 1, if Heritage is not already running:
+
 ```bash
 npm run demo-app
+```
+
+Terminal 2:
+
+```bash
 npm run replay -- --tenant heritage-demo --capability member.get-account-balances --memberId 54321 --noDemoServer
+```
+
+Terminal 1, if Riverside is not already running:
+
+```bash
 npm run demo:riverside-app
+```
+
+Terminal 2 for Riverside:
+
+```bash
 npm run replay -- --tenant riverside-demo --capability member.get-account-balances --memberId 24680 --noDemoServer
 ```
 
@@ -164,13 +204,6 @@ The model is useful for figuring out a UI once; the reusable capability must be 
 - Policy and redaction run outside the prompt, so they protect both discovery and replay.
 
 ## 2-Minute Demo
-
-Install once:
-
-```bash
-npm install
-npx playwright install chromium
-```
 
 Run the main no-cost path:
 
@@ -188,19 +221,23 @@ Try the approval-gated write flows:
 
 Against an already-running app on port `3000`:
 
-Immediate approval flag:
+Terminal 1, if Heritage is not already running:
 
 ```bash
 npm run demo-app
+```
+
+Terminal 2, immediate approval flag:
+
+```bash
 npm run replay -- --capability member.deposit-to-account --memberId 12345 --accountNumber S-100234 --amount 25.00 --approvalGranted --origin http://127.0.0.1:3000 --noDemoServer
 npm run replay -- --capability member.withdraw-from-account --memberId 12345 --accountNumber C-442910 --amount 10.00 --approvalGranted --origin http://127.0.0.1:3000 --noDemoServer
 npm run replay -- --capability member.get-transaction-history --memberId 12345 --accountNumber S-100234 --origin http://127.0.0.1:3000 --noDemoServer
 ```
 
-Browser approval handoff:
+Terminal 2, browser approval handoff:
 
 ```bash
-npm run demo-app
 npm run replay -- --capability member.deposit-to-account --memberId 12345 --accountNumber S-100234 --amount 25.00 --origin http://127.0.0.1:3000 --noDemoServer --interactive --headed --approvalTtlSeconds 60
 npm run replay -- --capability member.withdraw-from-account --memberId 12345 --accountNumber C-442910 --amount 10.00 --origin http://127.0.0.1:3000 --noDemoServer --interactive --headed --approvalTtlSeconds 60
 npm run replay -- --capability member.get-transaction-history --memberId 12345 --accountNumber S-100234 --origin http://127.0.0.1:3000 --noDemoServer
@@ -294,8 +331,15 @@ npm run demo:discover -- --scripted
 
 Run discovery against an already-running app:
 
+Terminal 1, if Heritage is not already running:
+
 ```bash
 npm run demo-app
+```
+
+Terminal 2:
+
+```bash
 npm run demo:discover -- --scripted --origin http://127.0.0.1:3000 --noDemoServer
 ```
 
@@ -318,8 +362,15 @@ npm run demo:compile -- --capability member.get-transaction-history
 
 Compile against an already-running app:
 
+Terminal 1, if Heritage is not already running:
+
 ```bash
 npm run demo-app
+```
+
+Terminal 2:
+
+```bash
 npm run demo:compile -- --origin http://127.0.0.1:3000 --noDemoServer
 npm run demo:compile -- --capability member.get-account-balances --origin http://127.0.0.1:3000 --noDemoServer
 npm run demo:compile -- --capability member.deposit-to-account --origin http://127.0.0.1:3000 --noDemoServer
@@ -360,8 +411,15 @@ npm run replay -- --capability member.get-account-balances --memberId 54321
 
 Replay against an already-running target app instead of letting the CLI start the bundled demo server:
 
+Terminal 1, if Heritage is not already running:
+
 ```bash
 npm run demo-app
+```
+
+Terminal 2:
+
+```bash
 npm run replay -- --capability member.get-account-balances --memberId 54321 --origin http://127.0.0.1:3000 --noDemoServer
 ```
 
@@ -405,16 +463,30 @@ Against an already-running app:
 
 Immediate approval flag:
 
+Terminal 1, if Heritage is not already running:
+
 ```bash
 npm run demo-app
+```
+
+Terminal 2:
+
+```bash
 npm run replay -- --capability member.deposit-to-account --memberId 12345 --accountNumber S-100234 --amount 25.00 --approvalGranted --origin http://127.0.0.1:3000 --noDemoServer
 npm run replay -- --capability member.withdraw-from-account --memberId 12345 --accountNumber C-442910 --amount 10.00 --approvalGranted --origin http://127.0.0.1:3000 --noDemoServer
 ```
 
 Browser approval handoff:
 
+Terminal 1, if Heritage is not already running:
+
 ```bash
 npm run demo-app
+```
+
+Terminal 2:
+
+```bash
 npm run replay -- --capability member.deposit-to-account --memberId 12345 --accountNumber S-100234 --amount 25.00 --origin http://127.0.0.1:3000 --noDemoServer --interactive --headed --approvalTtlSeconds 60
 npm run replay -- --capability member.withdraw-from-account --memberId 12345 --accountNumber C-442910 --amount 10.00 --origin http://127.0.0.1:3000 --noDemoServer --interactive --headed --approvalTtlSeconds 60
 ```
@@ -438,8 +510,15 @@ Replay mutating and history capabilities against an already-running app:
 
 Immediate approval flag:
 
+Terminal 1, if Heritage is not already running:
+
 ```bash
 npm run demo-app
+```
+
+Terminal 2:
+
+```bash
 npm run replay -- --capability member.deposit-to-account --memberId 12345 --accountNumber S-100234 --amount 25.00 --approvalGranted --origin http://127.0.0.1:3000 --noDemoServer
 npm run replay -- --capability member.withdraw-from-account --memberId 12345 --accountNumber C-442910 --amount 10.00 --approvalGranted --origin http://127.0.0.1:3000 --noDemoServer
 npm run replay -- --capability member.get-transaction-history --memberId 12345 --accountNumber S-100234 --origin http://127.0.0.1:3000 --noDemoServer
@@ -447,8 +526,15 @@ npm run replay -- --capability member.get-transaction-history --memberId 12345 -
 
 Browser approval handoff:
 
+Terminal 1, if Heritage is not already running:
+
 ```bash
 npm run demo-app
+```
+
+Terminal 2:
+
+```bash
 npm run replay -- --capability member.deposit-to-account --memberId 12345 --accountNumber S-100234 --amount 25.00 --origin http://127.0.0.1:3000 --noDemoServer --interactive --headed --approvalTtlSeconds 60
 npm run replay -- --capability member.withdraw-from-account --memberId 12345 --accountNumber C-442910 --amount 10.00 --origin http://127.0.0.1:3000 --noDemoServer --interactive --headed --approvalTtlSeconds 60
 npm run replay -- --capability member.get-transaction-history --memberId 12345 --accountNumber S-100234 --origin http://127.0.0.1:3000 --noDemoServer
@@ -486,7 +572,7 @@ npm run demo:handoff
 
 The demo starts automation, hits a session-expired condition, creates an intervention with screenshot context, transfers the same browser session to human ownership, blocks automation while the human owns the session, records redacted human input plus click/navigation actions, verifies the resume checkpoint, and continues automation in the original session.
 
-For a reviewer-facing handoff page:
+For an interactive handoff page:
 
 ```bash
 npm run demo:handoff -- --interactive --handoffTtlSeconds 60
@@ -497,6 +583,14 @@ Open the printed operator URL and click `Confirm Resume` at the top of the page.
 The handoff page shows the captured session-expired screen with the expected resume control highlighted, keeps the timer in the page, and closes as soon as resume/close/timeout is recorded.
 
 For handoff against an already-running local target app with a visible Playwright browser:
+
+Terminal 1, if Heritage is not already running:
+
+```bash
+npm run demo-app
+```
+
+Terminal 2:
 
 ```bash
 npm run demo:handoff -- --origin http://127.0.0.1:3000 --noDemoServer --interactive --headed --handoffTtlSeconds 120
@@ -576,8 +670,15 @@ npm run validate-capability -- member.withdraw-from-account --runs 3 --memberId 
 
 Validate against an already-running app:
 
+Terminal 1, if Heritage is not already running:
+
 ```bash
 npm run demo-app
+```
+
+Terminal 2:
+
+```bash
 npm run validate-capability -- member.get-account-balances --runs 5 --origin http://127.0.0.1:3000 --noDemoServer
 npm run validate-capability -- member.get-transaction-history --runs 5 --memberId 12345 --accountNumber S-100234 --origin http://127.0.0.1:3000 --noDemoServer
 npm run validate-capability -- member.deposit-to-account --runs 3 --memberId 12345 --accountNumber S-100234 --amount 1.00 --approvalGranted --origin http://127.0.0.1:3000 --noDemoServer
@@ -594,8 +695,15 @@ npm run demo:catalog
 
 Run the catalog against an already-running target app:
 
+Terminal 1, if Heritage is not already running:
+
 ```bash
 npm run demo-app
+```
+
+Terminal 2:
+
+```bash
 npm run demo:catalog -- --origin http://127.0.0.1:3000 --noDemoServer
 ```
 
@@ -622,14 +730,33 @@ Use these commands when the target website is already running, for example at `h
 
 The canonical CLI flag is `--noDemoServer`; lowercase `--nodemoserver` is also accepted as a convenience alias.
 
-The tenant profile shortcut is useful when the app origin, auth defaults, and artifact paths should come from one onboarding file:
+For already-running tenant apps, use the tenant profile plus `--noDemoServer`:
+
+Terminal 1, if Heritage is not already running:
 
 ```bash
-npm run replay -- --tenant heritage-demo --capability member.get-account-balances --memberId 54321
+npm run demo-app
+```
+
+Terminal 2 for Heritage:
+
+```bash
 npm run replay -- --tenant heritage-demo --capability member.get-account-balances --memberId 54321 --noDemoServer
-npm run replay -- --tenant riverside-demo --capability member.get-account-balances --memberId 24680
+```
+
+Terminal 1, if Riverside is not already running:
+
+```bash
+npm run demo:riverside-app
+```
+
+Terminal 2 for Riverside:
+
+```bash
 npm run replay -- --tenant riverside-demo --capability member.get-account-balances --memberId 24680 --noDemoServer
 ```
+
+For the remaining examples in this section, use the Heritage app in Terminal 1. Start it only if it is not already running:
 
 ```bash
 npm run demo-app
@@ -720,7 +847,7 @@ src/tenant         Tenant/application profile loading and capability mapping
 demo-app           Local Heritage and Riverside banking UI targets plus JSON-backed Heritage state
 capabilities       Saved and generated capability artifacts
 tenants            Onboarding profiles for bank/application-specific origins, auth, policy, and artifacts
-evidence           Curated reviewer evidence
+evidence           Curated demo evidence
 tests              Focused architectural and runtime tests
 ```
 
@@ -728,4 +855,4 @@ tests              Focused architectural and runtime tests
 
 Implemented deeply: two local UI surfaces, a realistic JSON-backed Heritage servicing app, a minimalist hard-coded Riverside tenant app, runtime login with read-only and read/write users, tenant/application profiles, tenant-specific capability mapping, semantic capability artifacts, deterministic replay, cross-tenant account-balance lookup, account-number scoped Heritage deposits and withdrawals, transaction-history lookup, artifact compilation, capability validation, recovery and hard-failure paths, policy/redaction, same-session human approval and handoff, evidence capture, external-origin execution, headed/headless browser modes, and an agent-facing catalog.
 
-Deliberately not implemented: real bank integrations, enterprise SSO/vault integration, desktop automation, distributed workers, queues, persistent multi-tenant storage, encrypted evidence retention, artifact override inheritance, and a full production co-browsing console. The seams are present for these, while the implementation stays focused on the core automation abstraction and reviewer-runnable vertical slice.
+Deliberately not implemented: real bank integrations, enterprise SSO/vault integration, desktop automation, distributed workers, queues, persistent multi-tenant storage, encrypted evidence retention, artifact override inheritance, and a full production co-browsing console. The seams are present for these, while the implementation stays focused on the core automation abstraction and locally runnable vertical slice.

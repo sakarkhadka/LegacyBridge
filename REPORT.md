@@ -12,7 +12,7 @@ Trade-off: The implementation has more explicit contracts than a quick Playwrigh
 
 Decision: The capability artifact is a YAML document with identity, version, lifecycle status, application fingerprint, typed inputs, typed outputs, business outcomes, ordered steps, semantic target descriptors, waits, recovery metadata, checkpoint, policy, and optional validation metadata.
 
-Why: A calling agent and a human reviewer should understand what the capability does without reading browser code. Inputs such as `memberId` are parameterized and marked sensitive. Outputs such as `accountBalances` are typed as structured account balance rows. Targets use semantic strategies like label, accessible role, relative position, and structural table lookup rather than raw selectors.
+Why: A calling agent and a human operator should understand what the capability does without reading browser code. Inputs such as `memberId` are parameterized and marked sensitive. Outputs such as `accountBalances` are typed as structured account balance rows. Targets use semantic strategies like label, accessible role, relative position, and structural table lookup rather than raw selectors.
 
 Trade-off: The artifact schema is narrower than a universal RPA model. It intentionally supports the locators and actions needed for this vertical slice while leaving extension points for desktop accessibility or vision-coordinate adapters.
 
@@ -50,11 +50,11 @@ Trade-off: This is not production compliance tooling. It does not implement real
 
 ## 7. Cuts
 
-Decision: The project focuses on one high-quality vertical slice: member account balances lookup on a local legacy-style servicing app.
+Decision: The project focuses on a high-quality automation slice anchored by Heritage member servicing, then adds Riverside as a deliberately smaller second tenant to prove the onboarding shape against a different UI.
 
-Why: The assignment rewards clear boundaries, correct replay semantics, error handling, safety, handoff, and evidence more than infrastructure breadth.
+Why: The assignment rewards clear boundaries, correct replay semantics, error handling, safety, handoff, evidence, and extensibility more than infrastructure breadth. Heritage carries the richer behavior: account balances, transaction history, deposits, withdrawals, state mutation, approval, recovery, and handoff. Riverside stays intentionally minimal: a different login and account-balance surface mapped to the same `member.get-account-balances` contract through a tenant-specific artifact.
 
-Trade-off: I did not build distributed orchestration, queues, a database-backed registry, real bank integrations, production auth, desktop automation, or a full co-browsing console. With more time, I would add tenant override files, screenshot redaction masks tied to filled target regions, a small approval UI for promoting `validated` artifacts to `approved`, and one second tenant variant to demonstrate cross-tenant reuse.
+Trade-off: I did not build distributed orchestration, queues, a database-backed registry, real bank integrations, production auth, desktop automation, persistent tenant storage, artifact inheritance, or a full co-browsing console. With more time, I would add tenant override files, screenshot redaction masks tied to filled target regions, a small approval UI for promoting `validated` artifacts to `approved`, and more tenant variants that exercise deeper UI differences beyond account-balance lookup.
 
 ## 8. Production considerations
 

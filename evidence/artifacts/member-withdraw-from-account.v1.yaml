@@ -1,9 +1,9 @@
 schemaVersion: "1.0"
 capability:
-  id: member.get-transaction-history
+  id: member.withdraw-from-account
   version: 1.0.0
-  name: Get transaction history
-  description: Look up the ten most recent transactions for a selected synthetic member account number.
+  name: Withdraw from account
+  description: Withdraw funds from a selected synthetic member account number after human approval.
   status: draft
 targetApplication:
   vendor: heritage-core
@@ -29,13 +29,18 @@ inputs:
     type: string
     required: true
     sensitive: true
-    description: Exact account number whose transactions should be returned.
+    description: Exact account number to withdraw from.
     pattern: ^[A-Z]-[0-9]{6}$
-outputs:
-  transactions:
-    type: transactionHistory
+  amount:
+    type: string
     required: true
-    description: Up to ten most recent transactions for the requested account.
+    description: Positive dollar amount to withdraw.
+    pattern: ^[0-9]+(\.[0-9]{1,2})?$
+outputs:
+  newBalance:
+    type: money
+    required: true
+    description: Account balance after the withdrawal is confirmed.
 outcomes:
   - code: MEMBER_NOT_FOUND
     description: No member exists for the supplied member number.
@@ -47,6 +52,16 @@ outcomes:
     when:
       - type: text_present
         value: Account not found
+  - code: INVALID_AMOUNT
+    description: The supplied amount is not a valid positive dollar amount.
+    when:
+      - type: text_present
+        value: Invalid amount
+  - code: INSUFFICIENT_FUNDS
+    description: The requested withdrawal exceeds the account balance.
+    when:
+      - type: text_present
+        value: Insufficient funds
 steps:
   - id: navigate-to-search
     action: navigate
@@ -84,35 +99,71 @@ steps:
       type: text
       text: Accounts
       timeoutMs: 5000
-  - id: open-transaction-history
+  - id: open-withdraw-screen
     action: click
     target:
-      description: Transactions action in the requested account row
+      description: Withdraw action in the requested account row
       primary:
         strategy: structural
         description: Accounts table row action for the requested account number
         rowText: "{{accountNumber}}"
-        controlText: Transactions
+        controlText: Withdraw
     wait:
       type: text
-      text: Most Recent 10 Transactions
+      text: Withdraw Funds
       timeoutMs: 5000
-  - id: extract-transactions
+  - id: enter-withdrawal-amount
+    action: fill
+    target:
+      description: Withdrawal amount input
+      primary:
+        strategy: label
+        text: Amount
+    value:
+      parameter: amount
+  - id: review-withdrawal
+    action: click
+    target:
+      description: Continue to withdrawal review
+      primary:
+        strategy: relative
+        anchorText: Amount
+        direction: below
+        controlType: submit button
+    wait:
+      type: text
+      text: Withdrawal Review
+      timeoutMs: 5000
+  - id: confirm-withdrawal
+    action: click
+    target:
+      description: Confirm Withdrawal button
+      primary:
+        strategy: accessible
+        role: button
+        name: Confirm Withdrawal
+    risk: IRREVERSIBLE_WRITE
+    wait:
+      type: text
+      text: Withdrawal Confirmation
+      timeoutMs: 5000
+  - id: extract-new-balance
     action: extract
     target:
-      description: Most recent transactions table
+      description: New balance from the withdrawal confirmation table
       primary:
         strategy: structural
-        description: Full transactions table containing Date/Time, Account Number, Account Type, Type, Amount, and Balance columns
-        columnText: Balance
+        description: Confirmation table new balance value
+        rowText: New Balance
+        columnText: Value
     output:
-      name: transactions
-      parseAs: transactionHistory
+      name: newBalance
+      parseAs: money
 checkpoint:
-  description: Transaction history was extracted from the account transaction table.
+  description: Withdrawal completed and the resulting account balance was extracted.
   conditions:
     - type: output_present
-      output: transactions
+      output: newBalance
 policy:
   allowedOrigins:
     - "{{origin}}"
@@ -125,11 +176,12 @@ policy:
     - fill
     - extract
     - wait
-  risk: READ_ONLY
+  risk: REVERSIBLE_WRITE
+  approvalRequired: true
 validation:
-  runs: 3
-  successes: 3
+  runs: 1
+  successes: 1
   failures: 0
   primaryLocatorUsage: 1
   fallbackLocatorUsage: 0
-  lastValidatedAt: 2026-09-08T06:47:08.024Z
+  lastValidatedAt: 2026-09-07T18:25:02.000Z
