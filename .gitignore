@@ -28,3 +28,5 @@ evidence/**/*.png
 Thumbs.db
 .idea/
 .vscode/
+
+status.md
