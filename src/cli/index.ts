@@ -2,6 +2,7 @@ import type { Page } from "playwright";
 import { copyFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createDemoAppServer, type DemoAppServer } from "../../demo-app/server.js";
+import { createRiversideAppServer, type RiversideAppServer } from "../../demo-app/riverside-server.js";
 import { loadCapabilityArtifact, loadCapabilityArtifactFromPath, saveCapabilityArtifact } from "../artifact/loader.js";
 import type { CapabilityArtifact } from "../artifact/types.js";
 import { DemoFormAuthProvider } from "../auth/demo-form-auth-provider.js";
@@ -20,6 +21,8 @@ import { replayCapability, type ReplayApprovalDecision, type ReplayApprovalReque
 import { parseOutput } from "../replay/output-extractor.js";
 import { PlaywrightSurfaceAdapter } from "../surface/playwright/playwright-adapter.js";
 import { createPlaywrightSession } from "../surface/playwright/session.js";
+import { capabilityPathForTenant, loadTenantProfile } from "../tenant/profile.js";
+import type { TenantProfile } from "../tenant/types.js";
 
 const command = process.argv[2] ?? "help";
 
@@ -60,6 +63,7 @@ if (!knownCommands.has(command)) {
 function printHelp(): void {
   console.log("LegacyBridge CLI");
   console.log("Commands: catalog, compile-discovery, discover, evidence, replay, handoff, validate-capability");
+  console.log("Use --tenant heritage-demo to load origin, auth defaults, and capability paths from tenants/heritage-demo.yaml.");
   console.log("");
   console.log("Replay example:");
   console.log("  npm run replay -- --capability member.get-account-balances --memberId 54321");
@@ -97,7 +101,8 @@ function printHelp(): void {
 
 async function runDiscoverCommand(args: string[]): Promise<void> {
   const options = parseArgs(args);
-  const targetApp = await prepareTargetApp(options, 3103);
+  const tenant = await tenantProfileFromOptions(options);
+  const targetApp = await prepareTargetApp(options, 3103, tenant);
   const origin = targetApp.origin;
   const goal = options.goal ?? "Look up member 12345 and return every available account balance.";
   const evidence = options.evidencePath
@@ -110,10 +115,10 @@ async function runDiscoverCommand(args: string[]): Promise<void> {
   const session = await createPlaywrightSession({
     headless: headlessFromOptions(options)
   });
-  const authProvider = authProviderFromOptions(options);
+  const authProvider = authProviderFromOptions(options, tenant);
 
   try {
-    const capability = await loadCapabilityArtifact("member.get-account-balances");
+    const capability = await loadCapabilityForOptions("member.get-account-balances", options, tenant);
     const surface = new PlaywrightSurfaceAdapter({
       page: session.page,
       sessionId: session.id
@@ -155,8 +160,9 @@ function extractMemberIdFromGoal(goal: string): string | undefined {
 
 async function runReplayCommand(args: string[]): Promise<void> {
   const options = parseArgs(args);
+  const tenant = await tenantProfileFromOptions(options);
   const capabilityId = options.capability ?? "member.get-account-balances";
-  const memberId = options.memberId ?? "54321";
+  const memberId = defaultMemberId(options, tenant);
   const evidence = options.evidencePath
     ? await createJsonlRecorder(options.evidencePath, {
       runId: `replay-${Date.now()}`,
@@ -164,14 +170,12 @@ async function runReplayCommand(args: string[]): Promise<void> {
       sensitiveValues: [memberId]
     })
     : undefined;
-  const targetApp = await prepareTargetApp(options, 3101);
+  const targetApp = await prepareTargetApp(options, 3101, tenant);
   const origin = targetApp.origin;
-  const authProvider = authProviderFromOptions(options);
+  const authProvider = authProviderFromOptions(options, tenant);
 
   try {
-    const capability = options.capabilityPath
-      ? await loadCapabilityArtifactFromPath(options.capabilityPath)
-      : await loadCapabilityArtifact(capabilityId);
+    const capability = await loadCapabilityForOptions(capabilityId, options, tenant);
     const summary = await replayCapability({
       capability,
       inputs: replayInputs(options, memberId),
@@ -192,8 +196,9 @@ async function runReplayCommand(args: string[]): Promise<void> {
 
 async function runCompileDiscoveryCommand(args: string[]): Promise<void> {
   const options = parseArgs(args);
+  const tenant = await tenantProfileFromOptions(options);
   const compileTarget = compileTargetFor(options);
-  const targetApp = await prepareTargetApp(options, 3104);
+  const targetApp = await prepareTargetApp(options, 3104, tenant);
   const origin = targetApp.origin;
   const goal = options.goal ?? compileTarget.goal;
   const outputPath = options.output ?? compileTarget.outputPath;
@@ -201,10 +206,10 @@ async function runCompileDiscoveryCommand(args: string[]): Promise<void> {
   const session = await createPlaywrightSession({
     headless: headlessFromOptions(options)
   });
-  const authProvider = authProviderFromOptions(options);
+  const authProvider = authProviderFromOptions(options, tenant);
 
   try {
-    const policyCapability = await loadCapabilityArtifact(compileTarget.capabilityId);
+    const policyCapability = await loadCapabilityForOptions(compileTarget.capabilityId, options, tenant);
     const surface = new PlaywrightSurfaceAdapter({
       page: session.page,
       sessionId: session.id
@@ -258,9 +263,10 @@ async function runCompileDiscoveryCommand(args: string[]): Promise<void> {
 
 async function runHandoffCommand(args: string[]): Promise<void> {
   const options = parseArgs(args);
-  const targetApp = await prepareTargetApp(options, 3105);
+  const tenant = await tenantProfileFromOptions(options);
+  const targetApp = await prepareTargetApp(options, 3105, tenant);
   const origin = targetApp.origin;
-  const memberId = options.memberId ?? "54321";
+  const memberId = defaultMemberId(options, tenant);
   const evidence = options.evidencePath
     ? await createJsonlRecorder(options.evidencePath, {
       runId: `handoff-${Date.now()}`,
@@ -520,17 +526,16 @@ async function runEvidenceCommand(args: string[]): Promise<void> {
 async function runValidateCapabilityCommand(args: string[]): Promise<void> {
   const positional = args.filter((arg) => !arg.startsWith("--") && !args[args.indexOf(arg) - 1]?.startsWith("--"));
   const options = parseArgs(args);
+  const tenant = await tenantProfileFromOptions(options);
   const capabilityId = positional[0] ?? options.capability ?? "member.get-account-balances";
   const runs = Number(options.runs ?? "5");
-  const memberId = options.memberId ?? "54321";
-  const targetApp = await prepareTargetApp(options, 3106);
+  const memberId = defaultMemberId(options, tenant);
+  const targetApp = await prepareTargetApp(options, 3106, tenant);
   const origin = targetApp.origin;
-  const authProvider = authProviderFromOptions(options);
+  const authProvider = authProviderFromOptions(options, tenant);
 
   try {
-    const capability = options.capabilityPath
-      ? await loadCapabilityArtifactFromPath(options.capabilityPath)
-      : await loadCapabilityArtifact(capabilityId);
+    const capability = await loadCapabilityForOptions(capabilityId, options, tenant);
     const report = await validateCapabilityStability({
       capability,
       origin,
@@ -546,7 +551,7 @@ async function runValidateCapabilityCommand(args: string[]): Promise<void> {
       ...capability,
       validation: report.validation
     };
-    const outputPath = options.output ?? defaultCapabilityPath(capabilityId);
+    const outputPath = options.output ?? defaultCapabilityPath(capabilityId, tenant);
     await saveCapabilityArtifact(outputPath, validatedCapability);
 
     console.log([
@@ -570,19 +575,24 @@ async function runValidateCapabilityCommand(args: string[]): Promise<void> {
 
 async function runCatalogCommand(args: string[]): Promise<void> {
   const options = parseArgs(args);
+  const tenant = await tenantProfileFromOptions(options);
   const targetApp = await prepareTargetApp({
     ...options,
     port: options.demoPort ?? options.port
-  }, 3107);
+  }, 3107, tenant);
   const catalogPort = options.catalogPort ? Number(options.catalogPort) : undefined;
-  const memberId = options.memberId ?? "54321";
+  const memberId = defaultMemberId(options, tenant);
   const origin = targetApp.origin;
+  const authProvider = authProviderFromOptions(options, tenant);
 
-  const loaded = await loadCapabilityArtifact("member.get-account-balances");
-  const capability = options.approved === "false" ? loaded : withCapabilityStatus(loaded, "approved");
+  const loadedCapabilities = await loadCatalogCapabilities(options, tenant);
+  const capabilities = options.approved === "false"
+    ? loadedCapabilities
+    : loadedCapabilities.map((capability) => withCapabilityStatus(capability, "approved"));
   const catalog = await createCapabilityCatalogServer({
-    capabilities: [capability],
+    capabilities,
     replayOrigin: origin,
+    authProvider,
     port: catalogPort
   });
 
@@ -634,7 +644,44 @@ async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
   return response.json();
 }
 
-function defaultCapabilityPath(capabilityId: string): string {
+async function tenantProfileFromOptions(options: Record<string, string>): Promise<TenantProfile | undefined> {
+  const tenant = options.tenant ?? options.tenantProfile;
+  return tenant ? loadTenantProfile(tenant) : undefined;
+}
+
+async function loadCapabilityForOptions(
+  capabilityId: string,
+  options: Record<string, string>,
+  tenant: TenantProfile | undefined
+): Promise<CapabilityArtifact> {
+  if (options.capabilityPath) {
+    return loadCapabilityArtifactFromPath(options.capabilityPath);
+  }
+  const tenantPath = capabilityPathForTenant(tenant, capabilityId);
+  return tenantPath ? loadCapabilityArtifactFromPath(tenantPath) : loadCapabilityArtifact(capabilityId);
+}
+
+async function loadCatalogCapabilities(
+  options: Record<string, string>,
+  tenant: TenantProfile | undefined
+): Promise<CapabilityArtifact[]> {
+  if (options.capability || options.capabilityPath) {
+    return [await loadCapabilityForOptions(options.capability ?? "member.get-account-balances", options, tenant)];
+  }
+
+  if (tenant) {
+    const capabilityIds = Object.keys(tenant.capabilities);
+    return Promise.all(capabilityIds.map((capabilityId) => loadCapabilityForOptions(capabilityId, options, tenant)));
+  }
+
+  return [await loadCapabilityArtifact("member.get-account-balances")];
+}
+
+function defaultCapabilityPath(capabilityId: string, tenant?: TenantProfile): string {
+  const tenantPath = capabilityPathForTenant(tenant, capabilityId);
+  if (tenantPath) {
+    return tenantPath;
+  }
   if (capabilityId === "member.get-account-balances" || capabilityId === "member.get-savings-balance") {
     return join("capabilities", "member-get-account-balances.v1.yaml");
   }
@@ -655,7 +702,10 @@ type TargetApp = {
   close(): Promise<void>;
 };
 
-async function prepareTargetApp(options: Record<string, string>, defaultPort: number): Promise<TargetApp> {
+type ManagedDemoServer = DemoAppServer | RiversideAppServer;
+
+async function prepareTargetApp(options: Record<string, string>, defaultPort: number, tenant?: TenantProfile): Promise<TargetApp> {
+  const configuredOrigin = options.origin ?? tenant?.application.defaultOrigin;
   if (options.origin && options.noDemoServer !== "false") {
     return {
       origin: stripTrailingSlash(options.origin),
@@ -667,7 +717,7 @@ async function prepareTargetApp(options: Record<string, string>, defaultPort: nu
 
   if (options.noDemoServer === "true") {
     return {
-      origin: stripTrailingSlash(options.origin ?? "http://127.0.0.1:3000"),
+      origin: stripTrailingSlash(configuredOrigin ?? "http://127.0.0.1:3000"),
       async close() {
         return undefined;
       }
@@ -675,20 +725,20 @@ async function prepareTargetApp(options: Record<string, string>, defaultPort: nu
   }
 
   const port = Number(options.port ?? String(defaultPort));
-  const server = createCliDemoAppServer(options);
+  const server = createCliDemoAppServer(options, tenant);
   await new Promise<void>((resolve) => {
     server.listen(port, "127.0.0.1", resolve);
   });
 
   return {
-    origin: stripTrailingSlash(options.origin ?? `http://127.0.0.1:${port}`),
+    origin: stripTrailingSlash(configuredOrigin && options.noDemoServer === "true" ? configuredOrigin : `http://127.0.0.1:${port}`),
     async close() {
       await closeDemoServer(server);
     }
   };
 }
 
-async function closeDemoServer(server: DemoAppServer): Promise<void> {
+async function closeDemoServer(server: ManagedDemoServer): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     server.close((error) => {
       if (error) {
@@ -932,20 +982,41 @@ function replayInputs(options: Record<string, string>, memberId: string): Record
   );
 }
 
-function authProviderFromOptions(options: Record<string, string>): RuntimeAuthProvider | undefined {
+function defaultMemberId(options: Record<string, string>, tenant?: TenantProfile): string {
+  return options.memberId ?? tenant?.demoDefaults?.memberId ?? "54321";
+}
+
+function authProviderFromOptions(options: Record<string, string>, tenant?: TenantProfile): RuntimeAuthProvider | undefined {
   if (options.auth === "none") {
     return undefined;
   }
 
-  const username = options.runtimeUser ?? process.env.LEGACYBRIDGE_RUNTIME_USER ?? "readwrite";
-  const password = options.runtimePassword ?? process.env.LEGACYBRIDGE_RUNTIME_PASSWORD ?? "rw123";
+  const auth = tenant?.auth;
+  if (auth && auth.provider !== "demo-form") {
+    throw new Error(`Unsupported auth provider for tenant ${tenant.tenantId}: ${auth.provider}`);
+  }
+
+  const username = options.runtimeUser ?? process.env.LEGACYBRIDGE_RUNTIME_USER ?? auth?.defaultRuntimeUser ?? "readwrite";
+  const password = options.runtimePassword ?? process.env.LEGACYBRIDGE_RUNTIME_PASSWORD ?? auth?.defaultRuntimePassword ?? "rw123";
   return new DemoFormAuthProvider({
     username,
-    password
+    password,
+    loginPath: auth?.loginPath,
+    usernameLabel: auth?.usernameLabel,
+    passwordLabel: auth?.passwordLabel,
+    submitLabel: auth?.submitLabel,
+    postLoginPath: auth?.postLoginPath,
+    roleByUsername: auth?.roleByUsername
   });
 }
 
-function createCliDemoAppServer(options: Record<string, string>): DemoAppServer {
+function createCliDemoAppServer(options: Record<string, string>, tenant?: TenantProfile): ManagedDemoServer {
+  if (tenant?.application.appFamily === "riverside-member-console") {
+    return createRiversideAppServer({
+      authRequired: options.auth !== "none"
+    });
+  }
+
   return createDemoAppServer({
     persistState: options.ephemeralState !== "true",
     statePath: options.statePath,

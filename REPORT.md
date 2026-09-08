@@ -26,11 +26,11 @@ Trade-off: Known recoveries are explicit and bounded. For example, the replay en
 
 ## 4. Heterogeneity & multi-tenant
 
-Decision: Browser automation is implemented with Playwright, but core contracts depend on `SurfaceAdapter`, not Playwright. The artifact records target identity; the adapter decides how to perceive and act on a specific surface.
+Decision: Browser automation is implemented with Playwright, but core contracts depend on `SurfaceAdapter`, not Playwright. The artifact records target identity; the adapter decides how to perceive and act on a specific surface. The implementation now includes a second Riverside tenant app with a different route, login form, page language, and table structure to show the same business capability running through a tenant-specific artifact.
 
 Why: The real environment includes modern web, legacy web, and desktop apps. A future `DesktopAccessibilityAdapter` could resolve accessible roles and labels from OS accessibility APIs. A future `VisionCoordinateAdapter` could resolve the same target description through screenshots and coordinates.
 
-Trade-off: Desktop and multi-tenant storage are not implemented. The design story is encoded through application fingerprints, compatibility metadata, semantic targets, and the separation between vendor capability and future tenant overrides. Significant drift should trigger revalidation rather than silent improvisation.
+Trade-off: Desktop and multi-tenant storage are not implemented. The design story is encoded through application profiles, application fingerprints, compatibility metadata, semantic targets, and tenant-specific artifact mappings. Significant drift should trigger revalidation rather than silent improvisation.
 
 ## 5. Escalation & handoff
 
@@ -60,7 +60,7 @@ Trade-off: I did not build distributed orchestration, queues, a database-backed 
 
 The demo target is intentionally local, but the runtime shape is meant to map to an actual bank or credit-union operations environment without putting credentials or browser mechanics inside every capability artifact.
 
-In production, each financial institution would be represented as a tenant with its own target origins, application fingerprints, capability registry namespace, policy profile, evidence retention rules, and secret references. Artifacts would be versioned per tenant and application, for example `tenant-a.core.member.get-account-balances.v3`, because two institutions may run similar servicing platforms with small route, label, entitlement, or branding differences.
+In production, each financial institution would be represented as a tenant with its own target origins, application fingerprints, capability registry namespace, policy profile, evidence retention rules, and secret references. The repository now includes this idea as a lightweight profile file under `tenants/`. Artifacts would be versioned per tenant and application, for example `tenant-a.core.member.get-account-balances.v3`, because two institutions may run similar servicing platforms with small route, label, entitlement, or branding differences.
 
 Authentication should remain outside the artifact. The demo uses `DemoFormAuthProvider`; a bank integration would swap in a tenant-specific `RuntimeAuthProvider` backed by SSO or privileged access infrastructure such as OIDC, SAML, Okta, Microsoft Entra ID, Ping, CyberArk, or a vault/KMS-backed credential broker. Runtime credentials, session cookies, refresh tokens, and MFA state would never be stored in YAML artifacts or evidence logs. The replay worker would authenticate into a controlled browser context, record that authentication succeeded with a redacted principal and role, then execute the deterministic capability.
 
@@ -70,4 +70,4 @@ Human approval and handoff would use the same ownership model demonstrated here:
 
 Operationally, production would add a worker queue, browser context isolation per run, per-tenant rate limits, health checks, alerting, replay timeouts, and circuit breakers for repeated failures. Screenshots and DOM snapshots would need field-level redaction rules. Capability promotion would move through draft, validation, approval, and active stages, with replay metrics used to detect UI drift. When drift appears, discovery can regenerate a draft, but production replay should fail closed until a validated artifact is promoted.
 
-This project does not claim those production services are complete. It demonstrates the important seams: deterministic replay without LLM decisions, semantic artifacts, runtime authentication outside the artifact, role-aware policy, same-session handoff, redacted evidence, and a catalog boundary that calling agents can use without knowing how the legacy UI works.
+This project does not claim those production services are complete. It demonstrates the important seams: deterministic replay without LLM decisions, semantic artifacts, tenant/application profiles, runtime authentication outside the artifact, role-aware policy, same-session handoff, redacted evidence, and a catalog boundary that calling agents can use without knowing how the legacy UI works.

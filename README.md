@@ -15,6 +15,8 @@ LegacyBridge is a focused end-to-end computer-use automation system for legacy b
 
 The target app is a local legacy-style servicing console named `Heritage Core Servicing`. It intentionally uses server-rendered pages, generated IDs, duplicate button labels, table layouts, and an accounts iframe so replay cannot depend on clean test IDs.
 
+The project also includes a second minimalist tenant app, `Riverside Member Console`, to prove the onboarding shape against a different UI. Riverside has different routes, login labels, page language, and table headings, but reuses the same `member.get-account-balances` capability contract through a tenant-specific artifact.
+
 The primary read capability is:
 
 ```text
@@ -40,25 +42,39 @@ Synthetic demo data:
 
 Manual demo and CLI runs share mutable demo state through `demo-app/state.json`. The file is created from the committed seed data on first use and is ignored by git.
 
-The standalone demo app requires operator login. Seeded users are:
+> **Seed Data Caution**
+>
+> Most reviewer commands assume the seeded Heritage members and accounts still exist, including `12345`, `54321`, `S-100234`, and `C-442910`. The reset command below is available as a recovery option if local demo state was changed heavily or manually edited, but it is not part of the normal happy path.
+
+The standalone apps require operator login. Seeded users are:
 
 ```text
+Heritage Core Servicing
 read / r123 -> read-only access for balances and transactions
 readwrite / rw123 -> read/write access for deposits, withdrawals, and sub-account opening
+
+Riverside Member Console
+analyst / a123 -> read-only access for account balances
 ```
 
-Replay, discovery, and compile commands authenticate as a runtime user before executing the capability. By default they use `readwrite/rw123`; override that with `--runtimeUser`, `--runtimePassword`, or the matching environment variables. Use `--auth none` only for explicit local unauthenticated experiments.
+Replay, discovery, and compile commands authenticate as a runtime user before executing the capability. Without `--tenant`, commands use the Heritage demo defaults: Heritage app startup, Heritage capability mappings, and `readwrite/rw123` runtime auth. Override auth with `--runtimeUser`, `--runtimePassword`, or the matching environment variables. Use `--auth none` only for explicit local unauthenticated experiments.
 
-Reset local demo state:
+Restore local demo state only when you intentionally want to return to the committed seed baseline:
 
 ```bash
-npm run demo:reset-data
+npm run demo:reset-data # recovery only; restores the committed seed baseline
 ```
 
 Start the demo app manually on port `3000`:
 
 ```bash
 npm run demo-app
+```
+
+Start the second tenant app manually on port `3010`:
+
+```bash
+npm run demo:riverside-app
 ```
 
 When passing CLI flags through an npm script, keep the extra `--` before the flags:
@@ -92,6 +108,52 @@ ReplayEngine
      -> future VisionCoordinateAdapter
 ```
 
+## Application Profiles
+
+LegacyBridge can load a tenant/application profile with `--tenant`. The demo profile is:
+
+```text
+tenants/heritage-demo.yaml
+tenants/riverside-demo.yaml
+```
+
+> **Important: Default Tenant Behavior**
+>
+> **If no `--tenant` flag is provided, the CLI keeps the original direct-flag behavior and defaults to the Heritage demo path.**
+>
+> That default means Heritage app startup, Heritage capability mappings, and `readwrite/rw123` runtime auth.
+>
+> **Use `--tenant riverside-demo` when you want the second app, Riverside-specific auth defaults, and the Riverside account-balances artifact.**
+
+That profile centralizes the pieces that change when onboarding another bank or credit union:
+
+- tenant and display name
+- application family and default origin
+- login form labels and runtime-user defaults
+- role mapping for runtime users
+- policy hints such as allowed origins and routes
+- capability IDs mapped to tenant-specific artifact paths
+
+The old direct flags still work, but the tenant-shaped command is closer to production:
+
+```bash
+npm run replay -- --tenant heritage-demo --capability member.get-account-balances --memberId 54321
+npm run replay -- --tenant heritage-demo --capability member.deposit-to-account --memberId 12345 --accountNumber S-100234 --amount 25.00 --approvalGranted --ephemeralState
+npm run validate-capability -- member.get-transaction-history --tenant heritage-demo --runs 3 --memberId 12345 --accountNumber S-100234 --ephemeralState
+npm run replay -- --tenant riverside-demo --capability member.get-account-balances --memberId 24680
+```
+
+For an already-running app, pair the tenant with `--noDemoServer`; the profile's `application.defaultOrigin` is used unless `--origin` is provided:
+
+```bash
+npm run demo-app
+npm run replay -- --tenant heritage-demo --capability member.get-account-balances --memberId 54321 --noDemoServer
+npm run demo:riverside-app
+npm run replay -- --tenant riverside-demo --capability member.get-account-balances --memberId 24680 --noDemoServer
+```
+
+To onboard another similar UI, add a new file under `tenants/`, point its capability mappings at that institution's reviewed artifacts, and configure its auth/origin/policy defaults. For compile profiles already supported by the discovery compiler, regenerate a draft artifact, validate it, then promote the reviewed artifact.
+
 ## Why Split It
 
 The model is useful for figuring out a UI once; the reusable capability must be typed, reviewable, parameterized, and cheap to run. LegacyBridge keeps that boundary explicit:
@@ -115,20 +177,20 @@ Run the main no-cost path:
 ```bash
 npm run demo:compile
 npm run replay -- --capabilityPath capabilities/generated/member-get-account-balances.draft.yaml --memberId 54321
+npm run replay -- --tenant riverside-demo --capability member.get-account-balances --memberId 24680
 npm run demo:not-found
 npm run demo:recovery
 npm run demo:handoff
 npm run demo:catalog
 ```
 
-Try the approval-gated write flows after resetting seed data:
+Try the approval-gated write flows:
 
 Against an already-running app on port `3000`:
 
 Immediate approval flag:
 
 ```bash
-npm run demo:reset-data
 npm run demo-app
 npm run replay -- --capability member.deposit-to-account --memberId 12345 --accountNumber S-100234 --amount 25.00 --approvalGranted --origin http://127.0.0.1:3000 --noDemoServer
 npm run replay -- --capability member.withdraw-from-account --memberId 12345 --accountNumber C-442910 --amount 10.00 --approvalGranted --origin http://127.0.0.1:3000 --noDemoServer
@@ -138,7 +200,6 @@ npm run replay -- --capability member.get-transaction-history --memberId 12345 -
 Browser approval handoff:
 
 ```bash
-npm run demo:reset-data
 npm run demo-app
 npm run replay -- --capability member.deposit-to-account --memberId 12345 --accountNumber S-100234 --amount 25.00 --origin http://127.0.0.1:3000 --noDemoServer --interactive --headed --approvalTtlSeconds 60
 npm run replay -- --capability member.withdraw-from-account --memberId 12345 --accountNumber C-442910 --amount 10.00 --origin http://127.0.0.1:3000 --noDemoServer --interactive --headed --approvalTtlSeconds 60
@@ -148,7 +209,6 @@ npm run replay -- --capability member.get-transaction-history --memberId 12345 -
 Or let each command start its own temporary demo app:
 
 ```bash
-npm run demo:reset-data
 npm run replay -- --capability member.deposit-to-account --memberId 12345 --accountNumber S-100234 --amount 25.00 --approvalGranted
 npm run replay -- --capability member.withdraw-from-account --memberId 12345 --accountNumber C-442910 --amount 10.00 --approvalGranted
 npm run replay -- --capability member.get-transaction-history --memberId 12345 --accountNumber S-100234
@@ -285,7 +345,10 @@ capabilities/member-get-account-balances.v1.yaml
 capabilities/member-deposit-to-account.v1.yaml
 capabilities/member-withdraw-from-account.v1.yaml
 capabilities/member-get-transaction-history.v1.yaml
+capabilities/riverside-member-get-account-balances.v1.yaml
 ```
+
+The generated artifacts demonstrate regeneration for the Heritage-style compile profiles. The Riverside artifact is intentionally hand-authored to show how a second tenant can map the same business capability to a different UI contract.
 
 ## Replay
 
@@ -363,7 +426,7 @@ npm run replay -- --capability member.deposit-to-account --memberId 12345 --acco
 npm run replay -- --capability member.withdraw-from-account --memberId 12345 --accountNumber C-442910 --amount 10.00 --approvalGranted
 ```
 
-Expected output includes `newBalance` as typed money. Because normal CLI runs use `demo-app/state.json`, a later account-balance replay on any port will reflect the updated balance until you run `npm run demo:reset-data`.
+Expected output includes `newBalance` as typed money. Because normal CLI runs use `demo-app/state.json`, a later account-balance replay on any port will reflect the updated balance. Use `npm run demo:reset-data` only when you intentionally want to restore the committed seed baseline.
 
 Fetch the latest ten account transactions:
 
@@ -536,6 +599,12 @@ npm run demo-app
 npm run demo:catalog -- --origin http://127.0.0.1:3000 --noDemoServer
 ```
 
+Run the catalog from the tenant profile. In smoke mode, this loads all mapped tenant capabilities and invokes the read-only account-balance capability:
+
+```bash
+npm run demo:catalog -- --tenant heritage-demo --ephemeralState
+```
+
 The catalog exposes:
 
 ```http
@@ -545,11 +614,22 @@ POST /capabilities/member.get-account-balances/invoke
 
 The public manifest includes only `name`, `description`, `inputs`, `outputs`, and `risk`. Calling agents provide business inputs like `{ "memberId": "54321" }`; they do not need to know Playwright, selectors, iframes, coordinates, pages, or DOM structure.
 
+With `--tenant riverside-demo`, the catalog exposes Riverside's mapped `member.get-account-balances` artifact instead. With `--tenant heritage-demo`, it exposes all four Heritage-mapped capabilities.
+
 ## Existing App Command Reference
 
 Use these commands when the target website is already running, for example at `http://127.0.0.1:3000`.
 
 The canonical CLI flag is `--noDemoServer`; lowercase `--nodemoserver` is also accepted as a convenience alias.
+
+The tenant profile shortcut is useful when the app origin, auth defaults, and artifact paths should come from one onboarding file:
+
+```bash
+npm run replay -- --tenant heritage-demo --capability member.get-account-balances --memberId 54321
+npm run replay -- --tenant heritage-demo --capability member.get-account-balances --memberId 54321 --noDemoServer
+npm run replay -- --tenant riverside-demo --capability member.get-account-balances --memberId 24680
+npm run replay -- --tenant riverside-demo --capability member.get-account-balances --memberId 24680 --noDemoServer
+```
 
 ```bash
 npm run demo-app
@@ -636,14 +716,16 @@ src/intervention   Same-session human handoff state and operator seam
 src/policy         Allowlists, risk classification, redaction
 src/replay         Deterministic capability execution path
 src/surface        Surface abstraction and Playwright adapter
-demo-app           Local legacy banking proxy target and JSON-backed demo state
+src/tenant         Tenant/application profile loading and capability mapping
+demo-app           Local Heritage and Riverside banking UI targets plus JSON-backed Heritage state
 capabilities       Saved and generated capability artifacts
+tenants            Onboarding profiles for bank/application-specific origins, auth, policy, and artifacts
 evidence           Curated reviewer evidence
 tests              Focused architectural and runtime tests
 ```
 
 ## Scope
 
-Implemented deeply: one live UI surface, a realistic JSON-backed servicing app, runtime login with read-only and read/write users, semantic capability artifacts, deterministic replay, account-balance lookup, account-number scoped deposits and withdrawals, transaction-history lookup, artifact compilation, capability validation, recovery and hard-failure paths, policy/redaction, same-session human approval and handoff, evidence capture, external-origin execution, headed/headless browser modes, and an agent-facing catalog.
+Implemented deeply: two local UI surfaces, a realistic JSON-backed Heritage servicing app, a minimalist hard-coded Riverside tenant app, runtime login with read-only and read/write users, tenant/application profiles, tenant-specific capability mapping, semantic capability artifacts, deterministic replay, cross-tenant account-balance lookup, account-number scoped Heritage deposits and withdrawals, transaction-history lookup, artifact compilation, capability validation, recovery and hard-failure paths, policy/redaction, same-session human approval and handoff, evidence capture, external-origin execution, headed/headless browser modes, and an agent-facing catalog.
 
-Deliberately not implemented: real bank integrations, enterprise SSO/vault integration, desktop automation, distributed workers, queues, persistent multi-tenant storage, encrypted evidence retention, and a full production co-browsing console. The seams are present for these, while the implementation stays focused on the core automation abstraction and reviewer-runnable vertical slice.
+Deliberately not implemented: real bank integrations, enterprise SSO/vault integration, desktop automation, distributed workers, queues, persistent multi-tenant storage, encrypted evidence retention, artifact override inheritance, and a full production co-browsing console. The seams are present for these, while the implementation stays focused on the core automation abstraction and reviewer-runnable vertical slice.

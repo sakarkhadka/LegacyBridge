@@ -1,4 +1,5 @@
 import type { CapabilityArtifact } from "../artifact/types.js";
+import type { RuntimeAuthProvider } from "../auth/types.js";
 import { replayCapability, type ReplaySummary } from "../replay/executor.js";
 
 export function isProductionInvokable(capability: CapabilityArtifact): boolean {
@@ -17,6 +18,7 @@ export async function invokeProductionCapability(options: {
   origin: string;
   scenario?: string;
   headless?: boolean;
+  authProvider?: RuntimeAuthProvider;
 }): Promise<ReplaySummary> {
   assertProductionInvokable(options.capability);
   return replayCapability(options);

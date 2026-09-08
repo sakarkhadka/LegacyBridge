@@ -1,0 +1,33 @@
+tenantId: riverside-demo
+displayName: Riverside Member Console Demo
+application:
+  appFamily: riverside-member-console
+  defaultOrigin: http://127.0.0.1:3010
+  fingerprint:
+    expectedTitle: Riverside Member Console
+    requiredText:
+      - Customer Lookup
+      - Riverside Member Console
+auth:
+  provider: demo-form
+  loginPath: /signin
+  usernameLabel: Operator ID
+  passwordLabel: Passcode
+  submitLabel: Enter Console
+  postLoginPath: /console/member-lookup
+  defaultRuntimeUser: analyst
+  defaultRuntimePassword: a123
+  roleByUsername:
+    analyst: READ_ONLY
+policy:
+  allowedOrigins:
+    - http://127.0.0.1:3010
+  allowedRoutes:
+    - /signin
+    - /console/*
+  evidenceRetention: local-demo-only
+demoDefaults:
+  memberId: "24680"
+capabilities:
+  member.get-account-balances:
+    path: capabilities/riverside-member-get-account-balances.v1.yaml

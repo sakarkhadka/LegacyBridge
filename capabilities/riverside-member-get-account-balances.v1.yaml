@@ -1,0 +1,115 @@
+schemaVersion: "1.0"
+capability:
+  id: member.get-account-balances
+  version: 1.0.0
+  name: Get account balances
+  description: Look up a Riverside demo customer and return available account balances.
+  status: draft
+targetApplication:
+  vendor: riverside-demo
+  application: Riverside Member Console
+  supportedVersions:
+    - demo
+  fingerprint:
+    titlePatterns:
+      - Riverside Member Console
+    routePatterns:
+      - /console/*
+    landmarks:
+      - Customer Lookup
+      - Relationship Summary
+inputs:
+  memberId:
+    type: string
+    required: true
+    sensitive: true
+    description: Synthetic Riverside customer number.
+    pattern: ^[0-9]{5}$
+outputs:
+  accountBalances:
+    type: accountBalances
+    required: true
+    description: Available balances for the Riverside customer.
+outcomes:
+  - code: MEMBER_NOT_FOUND
+    description: No Riverside customer exists for the supplied customer number.
+    when:
+      - type: text_present
+        value: No relationship found
+steps:
+  - id: navigate-to-lookup
+    action: navigate
+    value:
+      literal: "{{origin}}/console/member-lookup"
+    wait:
+      type: navigation
+      timeoutMs: 5000
+    postcondition:
+      - type: text_present
+        value: Customer Lookup
+  - id: enter-customer-number
+    action: fill
+    target:
+      description: Customer Number input
+      primary:
+        strategy: label
+        text: Customer Number
+      fallbacks:
+        - strategy: accessible
+          role: textbox
+          name: Customer Number
+    value:
+      parameter: memberId
+  - id: find-relationship
+    action: click
+    target:
+      description: Find Relationship button
+      primary:
+        strategy: accessible
+        role: button
+        name: Find Relationship
+      fallbacks:
+        - strategy: relative
+          anchorText: Customer Number
+          direction: below
+          controlType: submit button
+    wait:
+      type: text
+      text: Relationship Summary
+      timeoutMs: 5000
+  - id: extract-account-balances
+    action: extract
+    target:
+      description: Relationship Summary table with product, account, and available balance columns
+      primary:
+        strategy: structural
+        description: Relationship Summary account table
+        columnText: Available Balance
+    output:
+      name: accountBalances
+      parseAs: accountBalances
+checkpoint:
+  description: Riverside balances were extracted from the relationship summary table.
+  conditions:
+    - type: output_present
+      output: accountBalances
+policy:
+  allowedOrigins:
+    - "{{origin}}"
+    - http://localhost:3010
+  allowedRoutes:
+    - /console/*
+  allowedActions:
+    - navigate
+    - click
+    - fill
+    - extract
+    - wait
+  risk: READ_ONLY
+validation:
+  runs: 1
+  successes: 1
+  failures: 0
+  primaryLocatorUsage: 1
+  fallbackLocatorUsage: 0
+  lastValidatedAt: 2026-09-08T05:44:09.058Z

@@ -1,0 +1,40 @@
+tenantId: heritage-demo
+displayName: Heritage Core Servicing Demo
+application:
+  appFamily: legacy-core-servicing
+  defaultOrigin: http://127.0.0.1:3000
+  fingerprint:
+    expectedTitle: Heritage Core Servicing
+    requiredText:
+      - Member Search
+      - Heritage Core Servicing
+auth:
+  provider: demo-form
+  loginPath: /login
+  usernameLabel: Username
+  passwordLabel: Password
+  submitLabel: Sign In
+  postLoginPath: /servicing/search
+  defaultRuntimeUser: readwrite
+  defaultRuntimePassword: rw123
+  roleByUsername:
+    read: READ_ONLY
+    readwrite: READ_WRITE
+policy:
+  allowedOrigins:
+    - http://127.0.0.1:3000
+  allowedRoutes:
+    - /login
+    - /servicing/*
+  evidenceRetention: local-demo-only
+demoDefaults:
+  memberId: "54321"
+capabilities:
+  member.get-account-balances:
+    path: capabilities/member-get-account-balances.v1.yaml
+  member.deposit-to-account:
+    path: capabilities/member-deposit-to-account.v1.yaml
+  member.withdraw-from-account:
+    path: capabilities/member-withdraw-from-account.v1.yaml
+  member.get-transaction-history:
+    path: capabilities/member-get-transaction-history.v1.yaml

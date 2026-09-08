@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { CapabilityArtifact } from "../artifact/types.js";
+import type { RuntimeAuthProvider } from "../auth/types.js";
 import { invokeProductionCapability, isProductionInvokable } from "./production-catalog.js";
 import { publicManifestFor } from "./manifest.js";
 
@@ -12,12 +13,13 @@ export type CapabilityCatalogServer = {
 export async function createCapabilityCatalogServer(options: {
   capabilities: CapabilityArtifact[];
   replayOrigin: string;
+  authProvider?: RuntimeAuthProvider;
   port?: number;
 }): Promise<CapabilityCatalogServer> {
   const capabilitiesById = new Map(options.capabilities.map((capability) => [capability.capability.id, capability]));
   const server = createServer(async (request, response) => {
     try {
-      await routeCatalogRequest(request, response, capabilitiesById, options.replayOrigin);
+      await routeCatalogRequest(request, response, capabilitiesById, options.replayOrigin, options.authProvider);
     } catch (error) {
       sendJson(response, 500, {
         error: "CATALOG_ERROR",
@@ -55,7 +57,8 @@ async function routeCatalogRequest(
   request: IncomingMessage,
   response: ServerResponse,
   capabilitiesById: Map<string, CapabilityArtifact>,
-  replayOrigin: string
+  replayOrigin: string,
+  authProvider: RuntimeAuthProvider | undefined
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://127.0.0.1");
 
@@ -86,7 +89,8 @@ async function routeCatalogRequest(
     const result = await invokeProductionCapability({
       capability,
       inputs: body,
-      origin: replayOrigin
+      origin: replayOrigin,
+      authProvider
     });
     sendJson(response, result.result.status === "failure" ? 422 : 200, result);
     return;

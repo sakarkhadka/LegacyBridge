@@ -78,7 +78,7 @@ function parseAccountBalances(raw: string): AccountBalanceValue[] {
     .split("\n")
     .map((row) => row.trim())
     .filter(Boolean);
-  const dataRows = rows.filter((row) => !/^Account Type\s+/i.test(row));
+  const dataRows = rows.filter((row) => !/^Account Type\s+/i.test(row) && !/^Product\s+/i.test(row));
   const balances = dataRows.map((row) => {
     const columns = row.split(/\t+/).map((column) => column.trim()).filter(Boolean);
     if (columns.length < 3) {
